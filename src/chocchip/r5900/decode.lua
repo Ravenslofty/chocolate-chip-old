@@ -184,13 +184,13 @@ local general_table = ffi.new("DecodeTableEntry[64]", {
     { "j", true, true },
     { "jalr", true, true },
     { "beq", true, true },
-    { "bne", true, true },
+    { "bne", true, false },
     { "blez", true, true },
     { "bgtz", true, true },
     { "addi", false, true },
     { "addiu", false, true },
-    { "slti", false, true },
-    { "sltiu", false, true },
+    { "slti", false, false },
+    { "sltiu", false, false },
     { "andi", false, true },
     { "ori", false, true },
     { "xori", false, true },
@@ -315,6 +315,7 @@ local decode_table = ffi.new("DecodeTable[64]", {
 
 function decode.decode(self, read_byte, pc)
     local stop_decoding = false
+    local branch_delay_slot = false
     local ops = {}
 
     while stop_decoding == false do
@@ -324,10 +325,36 @@ function decode.decode(self, read_byte, pc)
             lshift(read_byte(self, pc + 2), 16),
             lshift(read_byte(self, pc + 3), 24))
 
+        local insn_op = mips.opcode_field(insn)
+        local insn_rs = mips.first_source_reg(insn)
+        local insn_rt = mips.second_source_reg(insn)
+        local insn_rd = mips.destination_reg(insn)
+        local insn_shamt = mips.shift_amount(insn)
+        local insn_funct = mips.funct_field(insn)
+
         local entry = decode_table[mips.opcode_field(insn)]
         local opcode = band(rshift(insn, entry.shift), entry.mask)
         local op = ffi.string(entry.table[opcode].name)
-        stop_decoding = entry.table[opcode].can_branch or entry.table[opcode].can_except
+        op = table.concat({
+            "interpret:",
+            op,
+            "(",
+            insn_op,
+            ", ",
+            insn_rs,
+            ", ",
+            insn_rt,
+            ", ",
+            insn_rd,
+            ", ",
+            insn_shamt,
+            ", ",
+            insn_funct,
+            "); interpret:cycle_update(); "
+        })
+
+        stop_decoding = entry.table[opcode].can_except or branch_delay_slot
+        branch_delay_slot = entry.table[opcode].can_branch
 
         io.write(bit.tohex(pc), " ", bit.tohex(insn), ": ", op, "\n")
 
