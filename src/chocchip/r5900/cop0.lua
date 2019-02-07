@@ -75,4 +75,14 @@ function cop0:cycle_update()
     end
 end
 
+-- Create a new COP0.
+function cop0:new()
+    ffi.fill(self.gprs, 32*ffi.sizeof("uint32_t"))
+
+    self:write_gpr(self.reg_names.RANDOM, 47)
+    self:write_gpr(self.reg_names.PRID, 0x2E10)
+
+    return self
+end
+
 return cop0

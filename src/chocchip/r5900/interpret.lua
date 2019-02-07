@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 
-local tlb = require("chocchip.r5900.tlb")
+--local tlb = require("chocchip.r5900.tlb")
 local cop0 = require("chocchip.r5900.cop0")
 
 local band, bor = bit.band, bit.bor
@@ -17,9 +17,9 @@ local interpret = {
     pc = ffi.new("uint32_t"),
 
     -- Translation lookaside buffer.
-    tlb = tlb,
+    --tlb = tlb,
     -- System control coprocessor.
-    cop0 = cop0
+    cop0 = cop0:new()
 }
 
 -- Per-cycle update.
@@ -356,9 +356,27 @@ function interpret:srav(_, rs, rt, rd, _, _)
     self:write_gpr32_i64(rd, value)
 end
 
+-- Initialise the interpreter.
+function interpret:new(pc)
+    ffi.fill(self.gprs, 32*ffi.sizeof("uint32_t"))
+
+    self.bd_cond[0] = false
+    self.bd_cond[1] = false
+    self.bd_pc[0] = 0
+    self.bd_pc[1] = 0
+
+    self.cop0 = cop0:new()
+
+    self.pc = pc
+end
+
+
 for i=1,1000 do
+    interpret:new(0)
     interpret:lui(15, 0, 1, 2, 8, 52) -- lui $1, 0x1234
+    interpret:cycle_update()
     interpret:ori(13, 1, 1, 10, 25, 56) -- ori $1, 0x5678
+    interpret:cycle_update()
 end
 
 return interpret

@@ -31,7 +31,7 @@ ffi.cdef[[
         // Secondary opcode mask.
         uint32_t mask;
         // Dispatch table for secondary opcode.
-        DecodeTableEntry* table;
+        DecodeTableEntry table[64];
     } DecodeTable;
 ]]
 
@@ -142,7 +142,7 @@ local regimm_table = ffi.new("DecodeTableEntry[64]", {
     { "reserved_instruction", true, true },
 })
 
-local cop0_table = ffi.new("DecodeTableEntry[32]", {
+local cop0_table = ffi.new("DecodeTableEntry[64]", {
     { "mfc0", false, false },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
@@ -325,7 +325,7 @@ function decode.decode(self, read_byte, pc)
             lshift(read_byte(self, pc + 3), 24))
 
         local entry = decode_table[mips.opcode_field(insn)]
-        local opcode = band(rshift(insn, entry.shift), entry.mask) + 1
+        local opcode = band(rshift(insn, entry.shift), entry.mask)
         local op = ffi.string(entry.table[opcode].name)
         stop_decoding = entry.table[opcode].can_branch or entry.table[opcode].can_except
 
