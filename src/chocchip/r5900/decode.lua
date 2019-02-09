@@ -142,8 +142,18 @@ local regimm_table = ffi.new("DecodeTableEntry[64]", {
     { "reserved_instruction", true, true },
 })
 
+-- COP0 opcodes have an opcode field of sixteen and are decoded by their rs field...Sometimes.
+-- Some opcodes are further decoded by their rt fields, making them triply indirect; we handle them specially.
 local cop0_table = ffi.new("DecodeTableEntry[64]", {
-    { "mfc0", false, false },
+    { "mfc0", false, false }, -- TODO: Set can_except should be true, because this can raise CpU in user mode.
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "mtc0", false, false }, -- TODO: Set can_except should be true, because this can raise CpU in user mode.
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "bc0", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
@@ -151,15 +161,7 @@ local cop0_table = ffi.new("DecodeTableEntry[64]", {
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
-    { "reserved_instruction", true, true },
+    { "c0", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
@@ -188,13 +190,13 @@ local general_table = ffi.new("DecodeTableEntry[64]", {
     { "blez", true, true },
     { "bgtz", true, true },
     { "addi", false, true },
-    { "addiu", false, true },
+    { "addiu", false, false },
     { "slti", false, false },
     { "sltiu", false, false },
-    { "andi", false, true },
-    { "ori", false, true },
-    { "xori", false, true },
-    { "lui", false, true },
+    { "andi", false, false },
+    { "ori", false, false },
+    { "xori", false, false },
+    { "lui", false, false },
     { "cop0_decode_bug", true, true }, -- COP0, hopefully unreachable.
     { "cop1_decode_bug", true, true }, -- COP1, hopefully unreachable.
     { "cop2_decode_bug", true, true }, -- COP2, hopefully unreachable.
@@ -222,7 +224,7 @@ local general_table = ffi.new("DecodeTableEntry[64]", {
     { "sb", false, true },
     { "sh", false, true },
     { "swl", false, true },
-    { "sw", false, true },
+    { "sw", false, false }, -- TODO: Change can_except to true because of MMU failure.
     { "sdl", false, true },
     { "sdr", false, true },
     { "swr", false, true },
@@ -242,7 +244,7 @@ local general_table = ffi.new("DecodeTableEntry[64]", {
     { "reserved_instruction", true, true }, -- SCD
     { "reserved_instruction", true, true }, -- SDC1
     { "sqc1", false, true },
-    { "sd", false, true },
+    { "sd", false, false }, -- TODO: Change can_except to true because of MMU failure.
 })
 
 -- A table of tables to decode MIPS instructions from the opcode field.
@@ -313,17 +315,16 @@ local decode_table = ffi.new("DecodeTable[64]", {
     { 26, 0x3F, general_table },
 })
 
-function decode.decode(self, read_byte, pc)
+function decode.decode(read4, pc)
+    assert(type(read4) == "function", "read4 is not a function")
+    assert(type(pc) == "number", "pc is not a number")
+
     local stop_decoding = false
     local branch_delay_slot = false
-    local ops = {}
+    local ops = {"local interpret = require(\"chocchip.r5900.interpret\")\n local s = _G[\"s\"]"}
 
     while stop_decoding == false do
-        local insn = bor(
-            read_byte(self, pc),
-            lshift(read_byte(self, pc + 1), 8),
-            lshift(read_byte(self, pc + 2), 16),
-            lshift(read_byte(self, pc + 3), 24))
+        local insn = read4(pc)
 
         local insn_op = mips.opcode_field(insn)
         local insn_rs = mips.first_source_reg(insn)
@@ -336,7 +337,7 @@ function decode.decode(self, read_byte, pc)
         local opcode = band(rshift(insn, entry.shift), entry.mask)
         local op = ffi.string(entry.table[opcode].name)
         op = table.concat({
-            "interpret:",
+            "\ns:",
             op,
             "(",
             insn_op,
@@ -350,13 +351,13 @@ function decode.decode(self, read_byte, pc)
             insn_shamt,
             ", ",
             insn_funct,
-            "); interpret:cycle_update(); "
+            "); s:cycle_update()"
         })
 
         stop_decoding = entry.table[opcode].can_except or branch_delay_slot
         branch_delay_slot = entry.table[opcode].can_branch
 
-        io.write(bit.tohex(pc), " ", bit.tohex(insn), ": ", op, "\n")
+        --io.write(bit.tohex(pc), " ", bit.tohex(insn), ": ", op, "\n")
 
         ops[#ops+1] = op
         pc = pc + 4

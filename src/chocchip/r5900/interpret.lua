@@ -1,4 +1,4 @@
-local ffi = require("ffi")
+local ffi = require("ffi") -- <3 <3 <3 you
 local bit = require("bit")
 
 --local tlb = require("chocchip.r5900.tlb")
@@ -19,15 +19,22 @@ local interpret = {
     -- Translation lookaside buffer.
     --tlb = tlb,
     -- System control coprocessor.
-    cop0 = cop0:new()
+    cop0 = cop0:new(),
+
+    -- Memory I/O functions, to be inserted by user.
+    read4 = nil,
+    write4 = nil,
 }
 
 -- Per-cycle update.
 function interpret:cycle_update()
     self.cop0:cycle_update()
 
+    self.pc = self.pc + 4
+
     -- Branch delay slot
     if self.bd_cond[0] == true then
+        --io.write("Branching to ", bit.tohex(self.bd_pc[0]), "\n")
         self.pc = self.bd_pc[0]
     end
 
@@ -36,7 +43,6 @@ function interpret:cycle_update()
     self.bd_pc[0] = self.bd_pc[1]
     self.bd_pc[1] = 0
 
-    self.pc = self.pc + 4
 end
 
 -- Read a 32-bit value from a register.
@@ -70,12 +76,14 @@ function interpret:write_gpr32_i64(reg, value)
         local sign = band(value, lshift(1, 31))
 
         self.gprs[reg][0] = value
+
         if sign == 0 then
             self.gprs[reg][1] = 0
         else
             self.gprs[reg][1] = -1
         end
     end
+    --io.write(string.format("$%d <- 0x%s%s\n", reg, bit.tohex(self.gprs[reg][1]), bit.tohex(self.gprs[reg][0])))
 end
 
 -- Write a 64-bit value to a register.
@@ -86,12 +94,14 @@ function interpret:write_gpr64(reg, value)
 
         self.gprs[reg][0] = lo
         self.gprs[reg][1] = hi
+
     end
+    --io.write(string.format("$%d <- 0x%s%s\n", reg, bit.tohex(self.gprs[reg][1]), bit.tohex(self.gprs[reg][0])))
 end
 
 -- MIPS sometimes sign-extends immediates.
-function interpret.sign_extend_16_32(value)
-    return arshift(lshift(ffi.cast("uint32_t", value), 16), 16)
+function interpret.sign_extend_16_64(value)
+    return arshift(lshift(ffi.cast("uint64_t", value), 48), 48)
 end
 
 -- MIPS sometimes zero-extends immediates.
@@ -166,12 +176,12 @@ end
 
 -- Add Immediate Unsigned.
 function interpret:addiu(_, rs, rt, rd, shamt, funct)
-    local rs_lo = self:read_gpr32(rs, 0)
-    local imm = self.create_imm16(rd, shamt, funct)
+    local rs_full = self:read_gpr64(rs, 0)
+    local imm = self.sign_extend_16_64(self.create_imm16(rd, shamt, funct))
 
-    local value = rs_lo + imm
+    local value = rs_full + imm
 
-    self:write_gpr32_i64(rt, value)
+    self:write_gpr64(rt, value)
 end
 
 -- AND. (renamed due to it being a Lua keyword)
@@ -200,9 +210,29 @@ function interpret:bandi(_, rs, rt, rd, shamt, funct)
     self:write_gpr32(rt, 0, 1)
 end
 
+-- Branch if not equal.
+function interpret:bne(_, rs, rt, rd, shamt, funct)
+    local imm = lshift(self.create_imm16(rd, shamt, funct), 2)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    self.bd_cond[1] = (rs_full ~= rt_full)
+    self.bd_pc[1] = self.pc + imm -- + 8?
+end
+
 -- Breakpoint. (renamed due to break being a Lua keyword)
 function interpret:bbreak(_, _, _, _, _, _)
     self:generate_breakpoint_exception()
+end
+
+-- Coprocessor 0 operations.
+function interpret:c0(_, _, rt, rd, shamt, funct)
+    if funct == 2 then
+        io.write("NYI: TLBWI\n")
+    else
+        print("Unrecognised COP0 operation", tostring(funct))
+        os.exit(1)
+    end
 end
 
 -- 64-bit Add.
@@ -263,8 +293,7 @@ function interpret:jal(_, rs, rt, rd, shamt, funct)
 
     self.bd_cond[1] = true
     self.bd_pc[1] = lshift(addr, 2)
-    -- BUG: this is technically wrong at the very edge of the address space.
-    self:write_gpr64(31, self.pc + 8)
+    self:write_gpr64(31, band(self.pc + 8, bit.tobit(0xFFFFFFFF)))
 end
 
 -- Jump to register address.
@@ -277,7 +306,7 @@ end
 function interpret:jalr(_, rs, _, rd, _, _)
     self.bd_cond[1] = true
     self.bd_pc[1] = self:read_gpr32(rs, 0)
-    self:write_gpr64(rd, self.pc + 8)
+    self:write_gpr64(rd, band(self.pc + 8, bit.tobit(0xFFFFFFFF)))
 end
 
 -- Load 16-bit immediate in upper 16-bits and zero lower 16-bits.
@@ -289,6 +318,20 @@ function interpret:lui(_, _, rt, rd, shamt, funct)
     self:write_gpr32_i64(rt, value)
 end
 
+-- Copy value from coprocessor 0 register.
+function interpret:mfc0(_, _, rt, rd, _, _)
+    local value = self.cop0:read_gpr(rd)
+
+    self:write_gpr32_i64(rt, value)
+end
+
+-- Copy value to coprocessor 0 register.
+function interpret:mtc0(_, _, rt, rd, _, _)
+    local value = self:read_gpr32(rt, 0)
+
+    self.cop0:write_gpr(rd, value)
+end
+
 -- OR Immediate.
 function interpret:ori(_, rs, rt, rd, shamt, funct)
     local imm = self.create_imm16(rd, shamt, funct)
@@ -297,6 +340,30 @@ function interpret:ori(_, rs, rt, rd, shamt, funct)
     local value = bor(rs_full, imm)
 
     self:write_gpr64(rt, value)
+end
+
+-- Store a 32-bit word in memory.
+function interpret:sw(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = ffi.cast("int32_t", imm)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local rt_lo = self:read_gpr32(rt, 0)
+    local addr = rs_lo + imm
+
+    self.write4(addr, rt_lo)
+end
+
+-- Store a 64-bit word in memory.
+function interpret:sd(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = ffi.cast("int32_t", imm)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local rt_lo = self:read_gpr32(rt, 0)
+    local rt_hi = self:read_gpr32(rt, 1)
+    local addr = rs_lo + imm
+
+    self.write4(addr, rt_lo)
+    self.write4(addr+4, rt_hi)
 end
 
 -- Shift Left Logical.
@@ -356,6 +423,20 @@ function interpret:srav(_, rs, rt, rd, _, _)
     self:write_gpr32_i64(rd, value)
 end
 
+-- Set a bit if the source is less than an immediate.
+function interpret:slti(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = ffi.cast("int64_t", self.sign_extend_16_64(imm))
+    local rs_full = ffi.cast("int64_t", self:read_gpr64(rs, 0))
+
+    self:write_gpr64(rd, ffi.cast("uint64_t", rs_full < imm))
+end
+
+-- Synchronise the pipeline.
+-- TODO: with full pipeline emulation, this should halt for ~6 cycles.
+function interpret:sync(_, _, _, _, _, _)
+end
+
 -- Initialise the interpreter.
 function interpret:new(pc)
     ffi.fill(self.gprs, 32*ffi.sizeof("uint32_t"))
@@ -365,18 +446,11 @@ function interpret:new(pc)
     self.bd_pc[0] = 0
     self.bd_pc[1] = 0
 
-    self.cop0 = cop0:new()
+    self.cop0:new()
 
     self.pc = pc
-end
 
-
-for i=1,1000 do
-    interpret:new(0)
-    interpret:lui(15, 0, 1, 2, 8, 52) -- lui $1, 0x1234
-    interpret:cycle_update()
-    interpret:ori(13, 1, 1, 10, 25, 56) -- ori $1, 0x5678
-    interpret:cycle_update()
+    return self
 end
 
 return interpret
