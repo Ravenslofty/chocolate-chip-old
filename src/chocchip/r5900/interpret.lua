@@ -21,6 +21,10 @@ local interpret = {
     -- System control coprocessor.
     cop0 = cop0:new(),
 
+    -- Bus clock, toggled every EE cycle.
+    bus_high = true,
+    bus_cycle_update = nil,
+
     -- Memory I/O functions, to be inserted by user.
     read4 = nil,
     write4 = nil,
@@ -30,7 +34,13 @@ local interpret = {
 function interpret:cycle_update()
     self.cop0:cycle_update()
 
-    self.pc = self.pc + 4
+    self.pc = ffi.cast("uint32_t", self.pc + 4)
+
+    -- Bus toggle
+    if self.bus_high then
+        self.bus_cycle_update()
+    end
+    self.bus_high = not self.bus_high
 
     -- Branch delay slot
     if self.bd_cond[0] == true then
@@ -42,7 +52,6 @@ function interpret:cycle_update()
     self.bd_cond[1] = false
     self.bd_pc[0] = self.bd_pc[1]
     self.bd_pc[1] = 0
-
 end
 
 -- Read a 32-bit value from a register.
@@ -68,6 +77,8 @@ function interpret:write_gpr32(reg, value, word)
     if reg ~= 0 then
         self.gprs[reg][word] = value
     end
+
+    --io.write(string.format("$%d <- 0x%s%s\n", reg, bit.tohex(self.gprs[reg][1]), bit.tohex(self.gprs[reg][0])))
 end
 
 -- Write a 32-bit value to a register, sign-extending it to 64-bit.
@@ -90,7 +101,7 @@ end
 function interpret:write_gpr64(reg, value)
     if reg ~= 0 then
         local lo = ffi.cast("uint32_t", value)
-        local hi = ffi.cast("uint32_t", rshift(value, 32))
+        local hi = rshift(value, 32)
 
         self.gprs[reg][0] = lo
         self.gprs[reg][1] = hi
@@ -112,6 +123,11 @@ end
 -- Create a 16-bit immediate.
 function interpret.create_imm16(rd, shamt, funct)
     return bor(lshift(rd, 11), lshift(shamt, 6), funct)
+end
+
+-- Create a 26-bit immediate.
+function interpret.create_imm26(rs, rt, rd, shamt, funct)
+    return bor(lshift(rs, 21), lshift(rt, 16), lshift(rd, 11), lshift(shamt, 6), funct)
 end
 
 -- System call.
@@ -210,14 +226,58 @@ function interpret:bandi(_, rs, rt, rd, shamt, funct)
     self:write_gpr32(rt, 0, 1)
 end
 
+-- OR. (renamed due to it being a Lua keyword)
+function interpret:bor(_, rs, rt, rd, _, _)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = bor(rs_full, rt_full)
+
+    self:write_gpr64(rd, value)
+end
+
+-- OR Immediate. (renamed for consistency with OR).
+function interpret:bori(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    local rs_full = self:read_gpr64(rs, 0)
+
+    local value = bor(rs_full, imm)
+
+    self:write_gpr64(rt, value)
+end
+
+-- Helper function for calculating branch offsets correctly.
+function interpret:branch_offset(rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = lshift(self.sign_extend_16_64(imm), 2)
+    return imm + 4
+end
+
+-- Branch if equal.
+function interpret:beq(_, rs, rt, rd, shamt, funct)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    self.bd_cond[1] = (rs_full == rt_full)
+    self.bd_pc[1] = self.pc + self:branch_offset(rd, shamt, funct)
+end
+
 -- Branch if not equal.
 function interpret:bne(_, rs, rt, rd, shamt, funct)
-    local imm = lshift(self.create_imm16(rd, shamt, funct), 2)
     local rs_full = self:read_gpr64(rs, 0)
     local rt_full = self:read_gpr64(rt, 0)
 
     self.bd_cond[1] = (rs_full ~= rt_full)
-    self.bd_pc[1] = self.pc + imm -- + 8?
+    self.bd_pc[1] = self.pc + self:branch_offset(rd, shamt, funct)
+end
+
+-- Branch if greater than or equal to zero.
+function interpret:bgez(_, rs, _, rd, shamt, funct)
+    local rs_full = self:read_gpr64(rs, 0)
+    rs_full = ffi.cast("int64_t", rs_full)
+
+    self.bd_cond[1] = (rs_full >= 0)
+    self.bd_pc[1] = self.pc + self:branch_offset(rd, shamt, funct)
 end
 
 -- Breakpoint. (renamed due to break being a Lua keyword)
@@ -270,13 +330,37 @@ function interpret:daddi(_, rs, rt, rd, shamt, funct)
     end
 end
 
--- 64-bit Add Immediate Unsigned
+-- 64-bit Add Immediate Unsigned.
 function interpret:daddiu(_, rs, rt, rd, shamt, funct)
     local rs_full = self:read_gpr64(rs, 0)
     local imm = self.create_imm16(rd, shamt, funct)
 
     local value = rs_full + imm
     self:write_gpr64(rt, value)
+end
+
+-- 64-bit Shift Left Logical.
+function interpret:dsll(_, _, rt, rd, shamt, _)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = lshift(rt_full, shamt)
+    self:write_gpr64(rd, value)
+end
+
+-- 64-bit Shift Left Logical plus 32.
+function interpret:dsll32(_, _, rt, rd, shamt, _)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = lshift(rt_full, shamt + 32)
+    self:write_gpr64(rd, value)
+end
+
+-- 64-bit Shift Right Arithmetic plus 32.
+function interpret:dsra32(_, _, rt, rd, shamt, _)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = arshift(rt_full, shamt + 32)
+    self:write_gpr64(rd, value)
 end
 
 -- Jump to immediate address.
@@ -290,10 +374,11 @@ end
 -- Jump to immediate address and place the link address in $ra.
 function interpret:jal(_, rs, rt, rd, shamt, funct)
     local addr = self.create_imm26(rs, rt, rd, shamt, funct)
+    local ra = band(self.pc + 8, bit.tobit(0xFFFFFFFF))
 
     self.bd_cond[1] = true
-    self.bd_pc[1] = lshift(addr, 2)
-    self:write_gpr64(31, band(self.pc + 8, bit.tobit(0xFFFFFFFF)))
+    self.bd_pc[1] = bor(band(self.pc, 0xF0000000), lshift(addr, 2))
+    self:write_gpr64(31, ra)
 end
 
 -- Jump to register address.
@@ -304,9 +389,48 @@ end
 
 -- Jump to register address and place the link address in rd.
 function interpret:jalr(_, rs, _, rd, _, _)
+    local ra = band(self.pc + 8, bit.tobit(0xFFFFFFFF))
+
     self.bd_cond[1] = true
     self.bd_pc[1] = self:read_gpr32(rs, 0)
-    self:write_gpr64(rd, band(self.pc + 8, bit.tobit(0xFFFFFFFF)))
+    self:write_gpr64(rd, ra)
+end
+
+-- Load an 8-bit word from memory and zero-extend it.
+function interpret:lbu(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = ffi.cast("int32_t", imm)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local addr = rs_lo + imm
+
+    local value = rshift(self.read4(addr), 24)
+    self.write_gpr64(rt, value)
+end
+
+-- Load a 16-bit word from memory and zero-extend it.
+function interpret:lhu(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = ffi.cast("int32_t", imm)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local addr = rs_lo + imm
+
+    assert(addr % 2 == 0, "lhu: address not naturally aligned")
+
+    local value = rshift(self.read4(addr), 16)
+    self.write_gpr64(rt, value)
+end
+
+-- Load a 32-bit word from memory
+function interpret:lw(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = ffi.cast("int32_t", imm)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local addr = rs_lo + imm
+
+    assert(addr % 4 == 0, "lw: address " .. bit.tohex(addr) .. "not naturally aligned")
+
+    local value = self.read4(addr)
+    self.write_gpr32_i64(rt, value)
 end
 
 -- Load 16-bit immediate in upper 16-bits and zero lower 16-bits.
@@ -332,14 +456,18 @@ function interpret:mtc0(_, _, rt, rd, _, _)
     self.cop0:write_gpr(rd, value)
 end
 
--- OR Immediate.
-function interpret:ori(_, rs, rt, rd, shamt, funct)
+-- Store a 16-bit halfword in memory.
+function interpret:sh(_, rs, rt, rd, shamt, funct)
     local imm = self.create_imm16(rd, shamt, funct)
-    local rs_full = self:read_gpr64(rs, 0)
+    imm = ffi.cast("int32_t", imm)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local rt_lo = band(self:read_gpr32(rt, 0), 0xFFFF)
+    local addr = rs_lo + imm
 
-    local value = bor(rs_full, imm)
+    assert(addr % 2 == 0, "sh: address not naturally aligned")
 
-    self:write_gpr64(rt, value)
+    local data = band(self.read4(addr), 0xFFFF0000)
+    self.write4(addr, bor(data, rt_lo))
 end
 
 -- Store a 32-bit word in memory.
@@ -349,6 +477,8 @@ function interpret:sw(_, rs, rt, rd, shamt, funct)
     local rs_lo = self:read_gpr32(rs, 0)
     local rt_lo = self:read_gpr32(rt, 0)
     local addr = rs_lo + imm
+
+    assert(addr % 4 == 0, "sw: address not naturally aligned")
 
     self.write4(addr, rt_lo)
 end
@@ -361,6 +491,8 @@ function interpret:sd(_, rs, rt, rd, shamt, funct)
     local rt_lo = self:read_gpr32(rt, 0)
     local rt_hi = self:read_gpr32(rt, 1)
     local addr = rs_lo + imm
+
+    assert(addr % 8 == 0, "sd: address not naturally aligned")
 
     self.write4(addr, rt_lo)
     self.write4(addr+4, rt_hi)
@@ -448,7 +580,7 @@ function interpret:new(pc)
 
     self.cop0:new()
 
-    self.pc = pc
+    self.pc = ffi.cast("uint32_t", pc)
 
     return self
 end

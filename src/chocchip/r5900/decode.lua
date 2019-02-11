@@ -75,8 +75,8 @@ local special_table = ffi.new("DecodeTableEntry[64]", {
     { "addu", false, false },
     { "sub", false, true },
     { "subu", false, false },
-    { "and", false, false },
-    { "or", false, false },
+    { "band", false, false }, -- AND, but "and" is a reserved keyword
+    { "bor", false, false }, -- OR, but "or" is a reserved keyword
     { "xor", false, false },
     { "nor", false, false },
     { "mfsa", false, false },
@@ -109,7 +109,7 @@ local special_table = ffi.new("DecodeTableEntry[64]", {
 -- Instructions that take a 16-bit immediate go here.
 local regimm_table = ffi.new("DecodeTableEntry[64]", {
     { "bltz", true, true },
-    { "bgez", true, true },
+    { "bgez", true, false },
     { "bltzl", true, true },
     { "bgezl", true, true },
     { "reserved_instruction", true, true },
@@ -145,15 +145,15 @@ local regimm_table = ffi.new("DecodeTableEntry[64]", {
 -- COP0 opcodes have an opcode field of sixteen and are decoded by their rs field...Sometimes.
 -- Some opcodes are further decoded by their rt fields, making them triply indirect; we handle them specially.
 local cop0_table = ffi.new("DecodeTableEntry[64]", {
-    { "mfc0", false, false }, -- TODO: Set can_except should be true, because this can raise CpU in user mode.
+    { "mfc0", false, false }, -- TODO: can_except should be true, because this can raise CpU in user mode.
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
-    { "mtc0", false, false }, -- TODO: Set can_except should be true, because this can raise CpU in user mode.
+    { "mtc0", false, false }, -- TODO: can_except should be true, because this can raise CpU in user mode.
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
-    { "bc0", true, true },
+    { "bc0", true, false }, -- TODO: can_except should be true, because this can raise CpU in user mode.
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
@@ -161,7 +161,7 @@ local cop0_table = ffi.new("DecodeTableEntry[64]", {
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
-    { "c0", true, true },
+    { "c0", false, false }, -- TODO: can_except should be true, because this can raise CpU in user mode.
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
@@ -183,18 +183,18 @@ local cop0_table = ffi.new("DecodeTableEntry[64]", {
 local general_table = ffi.new("DecodeTableEntry[64]", {
     { "special_decode_bug", true, true }, -- SPECIAL, hopefully unreachable.
     { "regimm_decode_bug", true, true }, -- REGIMM, hopefully unreachable.
-    { "j", true, true },
-    { "jalr", true, true },
-    { "beq", true, true },
+    { "j", true, false },
+    { "jal", true, false },
+    { "beq", true, false },
     { "bne", true, false },
-    { "blez", true, true },
-    { "bgtz", true, true },
+    { "blez", true, false },
+    { "bgtz", true, false },
     { "addi", false, true },
     { "addiu", false, false },
     { "slti", false, false },
     { "sltiu", false, false },
-    { "andi", false, false },
-    { "ori", false, false },
+    { "bandi", false, false }, -- ANDI, but "and" is a Lua reserved keyword.
+    { "bori", false, false },
     { "xori", false, false },
     { "lui", false, false },
     { "cop0_decode_bug", true, true }, -- COP0, hopefully unreachable.
@@ -216,13 +216,13 @@ local general_table = ffi.new("DecodeTableEntry[64]", {
     { "lb", false, true },
     { "lh", false, true },
     { "lwl", false, true },
-    { "lw", false, true },
-    { "lbu", false, true },
-    { "lhu", false, true },
+    { "lw", false, false }, -- TODO: Change can_except to true because of MMU failure.
+    { "lbu", false, false }, -- TODO: Change can_except to true because of MMU failure.
+    { "lhu", false, false }, -- TODO: Change can_except to true because of MMU failure.
     { "lwr", false, true },
     { "lwu", false, true },
     { "sb", false, true },
-    { "sh", false, true },
+    { "sh", false, false }, -- TODO: Change can_except to true because of MMU failure.
     { "swl", false, true },
     { "sw", false, false }, -- TODO: Change can_except to true because of MMU failure.
     { "sdl", false, true },
@@ -322,6 +322,7 @@ function decode.decode(read4, pc)
     local stop_decoding = false
     local branch_delay_slot = false
     local ops = {"local interpret = require(\"chocchip.r5900.interpret\")\n local s = _G[\"s\"]"}
+    local op_count = 0
 
     while stop_decoding == false do
         local insn = read4(pc)
@@ -357,13 +358,17 @@ function decode.decode(read4, pc)
         stop_decoding = entry.table[opcode].can_except or branch_delay_slot
         branch_delay_slot = entry.table[opcode].can_branch
 
+        if entry.table[opcode].can_except then
+            io.write(ffi.string(entry.table[opcode].name), " can raise exception; finishing trace")
+        end
         --io.write(bit.tohex(pc), " ", bit.tohex(insn), ": ", op, "\n")
 
         ops[#ops+1] = op
         pc = pc + 4
+        op_count = op_count + 1
     end
 
-    return table.concat(ops)
+    return table.concat(ops), op_count
 end
 
 return decode

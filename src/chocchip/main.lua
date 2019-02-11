@@ -1,8 +1,9 @@
 local ffi = require("ffi")
 local bit = require("bit")
 
-local r5900_decode = require "chocchip.r5900.decode"
-local r5900_interpret = require "chocchip.r5900.interpret"
+local r5900_decode = require("chocchip.r5900.decode")
+local r5900_interpret = require("chocchip.r5900.interpret")
+local r5900_timer = require("chocchip.r5900.timer")
 --local r5900_tlb = require "chocchip.r5900.tlb"
 
 local band, bor = bit.band, bit.bor
@@ -18,11 +19,16 @@ local main = {
     -- DMAC registers.
     dmac_config_reg = nil,
 
+    -- GS privileged registers.
+    gs_special_reg = nil,
+    gs_config_reg = nil,
+
     -- BIOS data.
     bios = nil,
 
     -- R5900 CPU.
-    tlb = nil
+    tlb = nil,
+    timers = nil,
 }
 
 function main:init()
@@ -39,11 +45,14 @@ function main:init()
 
     self.bios = ffi.new("uint8_t[4*1024*1024]", data)
     self.rdram = ffi.new("uint8_t[32*1024*1024]")
+    self.rdram_size = 32*1024*1024
     self.spram = ffi.new("uint8_t[16*1024]")
 
-    self.dmac_config_reg = ffi.new("uint32_t[16]")
-
     --self.tlb = r5900_tlb:new()
+    self.timers = { r5900_timer:new(), r5900_timer:new(), r5900_timer:new(), r5900_timer:new() }
+    self.dmac_config_reg = ffi.new("uint32_t[16]")
+    self.gs_special_reg = ffi.new("uint64_t[16]")
+    self.gs_config_reg = ffi.new("uint64_t[16]")
 
     self.setup = true
 end
@@ -59,8 +68,6 @@ function main.translate(vaddr)
 end
 
 function r5900_interpret.read4(vaddr)
-    assert(vaddr % 4 == 0, "virtual address is not 4-byte aligned")
-
     local scratchpad, paddr = main.translate(vaddr)
 
     -- Scratchpad RAM.
@@ -68,7 +75,7 @@ function r5900_interpret.read4(vaddr)
         local data = 0
         for i=0,3 do
             local byte = main.spram[paddr+i]
-            data = bor(lshift(data, 8), byte)
+            data = bor(rshift(data, 8), lshift(byte, 24))
         end
         return data
     -- RDRAM.
@@ -79,10 +86,32 @@ function r5900_interpret.read4(vaddr)
             data = bor(rshift(data, 8), lshift(byte, 24))
         end
         return data
+    -- Timers.
+    elseif paddr >= 0x10000000 and paddr <= 0x100003f0 then
+        local timer = tonumber(rshift(band(paddr, 0xf00), 8) + 1)
+        local reg = rshift(band(paddr, 0xf0), 4)
+        return main.timers[timer]:read_gpr(reg)
     -- DMAC configuration registers.
     elseif paddr >= 0x1000f500 and paddr <= 0x1000f5f0 then
         local reg = rshift(band(paddr, 0xf0), 2)
         return main.dmac_config_reg[reg]
+    -- GS special registers.
+    elseif paddr >= 0x12000000 and paddr <= 0x120000f0 then
+        local reg = rshift(band(paddr, 0xf0), 2)
+        return main.gs_special_reg[reg]
+    -- GS configuration registers.
+    elseif paddr >= 0x12001000 and paddr <= 0x120010f0 then
+        local reg = rshift(band(paddr, 0xf0), 2)
+        return main.gs_config_reg[reg]
+    -- ????
+    elseif paddr == 0x1a000006 then
+        return 1
+    -- ???? 2
+    elseif paddr == 0x1a000000 or paddr == 0x1a000002 or paddr == 0x1a000010 or paddr == 0x1a000012 then
+        return 0
+    -- "Some IOP shit" - PSI
+    elseif paddr == 0x1f803204 or paddr == 0x1f801470 or paddr == 0x1f801472 then
+        return 0
     -- BIOS ROM.
     elseif paddr >= 0x1fc00000 and paddr <= 0x20000000 then -- luacheck: ignore
         local addr = paddr - 0x1fc00000
@@ -93,14 +122,12 @@ function r5900_interpret.read4(vaddr)
         end
         return data
     else
-        print("NYI: Unrecognised physical address ", bit.tohex(paddr), "for virtual address", bit.tohex(vaddr))
+        print("NYI: Unrecognised read from physical address", bit.tohex(paddr), "for virtual address", bit.tohex(vaddr))
         os.exit(1)
     end
 end
 
 function r5900_interpret.write4(vaddr, data)
-    assert(vaddr % 4 == 0, "virtual address is not 4-byte aligned")
-
     local scratchpad, paddr = main.translate(vaddr)
 
     -- Scratchpad RAM.
@@ -115,17 +142,45 @@ function r5900_interpret.write4(vaddr, data)
             local byte = band(rshift(data, i*8), 0xFF)
             main.rdram[paddr+i] = byte
         end
+    -- Timers
+    elseif paddr >= 0x10000000 and paddr <= 0x100003f0 then
+        local timer = tonumber(rshift(band(paddr, 0xf00), 8) + 1)
+        local reg = rshift(band(paddr, 0xf0), 4)
+        main.timers[timer]:write_gpr(reg, data)
     -- DMAC configuration registers.
     elseif paddr >= 0x1000f500 and paddr <= 0x1000f5f0 then
-        local reg = rshift(band(paddr, 0xf0), 2)
+        local reg = rshift(band(paddr, 0xf0), 4)
         main.dmac_config_reg[reg] = data
+    -- GS special registers.
+    elseif paddr >= 0x12000000 and paddr <= 0x120000f0 then
+        local reg = rshift(band(paddr, 0xf0), 2)
+        main.gs_special_reg[reg] = data
+    -- GS configuration registers.
+    elseif paddr >= 0x12001000 and paddr <= 0x120010f0 then
+        local reg = rshift(band(paddr, 0xf0), 2)
+        main.gs_config_reg[reg] = data
+    -- ????
+    elseif paddr == 0x1a000000 or
+        paddr == 0x1a000002 or
+        paddr == 0x1a000006 or
+        paddr == 0x1a000010 or
+        paddr == 0x1a000012 then -- luacheck: ignore
+    -- "Some IOP shit" - PSI
+    elseif paddr == 0x1f801470 or paddr == 0x1f801472 then -- luacheck: ignore
     -- BIOS ROM.
     elseif paddr >= 0x1fc00000 and paddr <= 0x20000000 then -- luacheck: ignore
         -- Ignore BIOS writes.
     else
-        print("NYI: Unrecognised physical address ", bit.tohex(paddr), "for virtual address", bit.tohex(vaddr))
+        print("NYI: Unrecognised write to physical address ", bit.tohex(paddr), "for virtual address", bit.tohex(vaddr))
         os.exit(1)
     end
+end
+
+function r5900_interpret:bus_cycle_update()
+    main.timers[1]:cycle_update()
+    main.timers[2]:cycle_update()
+    main.timers[3]:cycle_update()
+    main.timers[4]:cycle_update()
 end
 
 main:init()
@@ -133,20 +188,46 @@ main:init()
 -- luacheck: ignore
 -- Used by the emitted functions
 s = r5900_interpret:new(0xBFC00000)
-local t = {}
 
-for i=1,100 do
-    --[[for N=29,29 do
-        io.write(string.format("%d: %s%s\n", N, bit.tohex(s:read_gpr64(N, 1)), bit.tohex(s:read_gpr64(N, 0))))
-    end]]
-    local pc = tonumber(s.pc)
-    io.write(bit.tohex(pc), "\n")
-    if t[pc] == nil then
-        local f = r5900_decode.decode(r5900_interpret.read4, pc)
-        io.write(f, "\n")
-        t[pc] = load(f)
+local traces_executed = 0
+local insns_executed = 0
+
+function main.run()
+    local t = {}
+    local count = {}
+    while true do
+        --[[for N=3,3 do
+            io.write(string.format("%d: %s%s\n", N, bit.tohex(s:read_gpr64(N, 1)), bit.tohex(s:read_gpr64(N, 0))))
+        end]]
+        local pc = tonumber(s.pc)
+        --assert(pc ~= 0, "jumped to zero")
+        if t[pc] == nil then
+            io.write("PC: ", bit.tohex(pc), "\n")
+            local f, c = r5900_decode.decode(r5900_interpret.read4, pc)
+            --io.write(f, "\n")
+            t[pc] = assert(load(f, f))
+            count[pc] = c
+        end
+        t[pc]()
+        insns_executed = insns_executed + count[pc]
+        traces_executed = traces_executed + 1
     end
-    t[pc]()
 end
 
-return main
+function main.registers()
+    for reg=0,31 do
+        print(reg, bit.tohex(s:read_gpr64(reg, 1)), bit.tohex(s:read_gpr64(reg, 0)))
+    end
+end
+
+function main.crash(err)
+    io.write("chocchip: error: ", err, "\n\n")
+    --os.exit(1)
+end
+
+xpcall(main.run, main.crash)
+io.write("register state:\n")
+main.registers()
+io.write("executed instructions: ", tostring(insns_executed), "\n")
+
+--return main
