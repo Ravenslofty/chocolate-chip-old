@@ -1,8 +1,6 @@
 local ffi = require("ffi")
 local bit = require("bit")
 
-local utils = require("chocchip.utils")
-
 local band = bit.band
 local lshift = bit.lshift
 
@@ -15,7 +13,7 @@ local timer = {
     cycles_until_increment = 0
 }
 
-local constants = utils.protect({
+local constants = {
     MODE = 0,
     COUNT = 1,
     COMP = 2,
@@ -24,39 +22,21 @@ local constants = utils.protect({
     -- Clock Selection - set clock frequency.
     MODE_CLKS = 3,
     -- Count Up Enable - enables timer.
-    MODE_CUE = lshift(1, 7),
+    MODE_CUE = 0x80, --lshift(1, 7),
 
     -- Approximate HBlank interval for PAL in bus cycles.
     HBLANK_PAL = 4719
-})
+}
 
-function timer:read_gpr(reg)
-    assert(reg < 4, "register index is too large")
-
-    reg = tonumber(reg)
-
-    return self.regs[reg]
-end
-
-function timer:write_gpr(reg, value)
-    assert(reg < 4, "register index is too large")
-
-    reg = tonumber(reg)
-
-    self.regs[reg] = value
-
-    if self:is_enabled() then
-        self.cycles_until_increment = self:update_frequency()
-    end
-end
-
-function timer:is_enabled()
+local function is_enabled(self)
     local mode = self:read_gpr(constants.MODE)
+    local enabled = (band(mode, 0x80) == 0x80)
 
-    return band(mode, constants.MODE_CUE) ~= 0
+    print(bit.tohex(mode))
+    return mode == 0x83
 end
 
-function timer:update_frequency()
+local function update_frequency(self)
     local mode = self:read_gpr(constants.MODE)
     local clock = band(mode, constants.MODE_CLKS)
 
@@ -76,10 +56,35 @@ function timer:update_frequency()
     end
 end
 
+function timer:read_gpr(reg)
+    assert(reg < 4, "register index is too large")
+
+    return self.regs[reg]
+end
+
+function timer:write_gpr(reg, value)
+    assert(reg < 4, "register index is too large")
+
+    reg = tonumber(reg)
+
+    self.regs[reg] = value
+
+    print(type(reg), type(constants.MODE))
+    if reg == constants.MODE then
+        io.write("MODE: ", bit.tohex(value), "\n")
+    end
+
+    if is_enabled(self) then
+        self.cycles_until_increment = self:update_frequency()
+    end
+end
+
 function timer:cycle_update()
-    if not self:is_enabled() then
+    if true or self.regs[constants.MODE] ~= 0x80 then
         return
     end
+
+    io.write("timer tick")
 
     self.cycles_until_increment = self.cycles_until_increment - 1
 
@@ -91,7 +96,7 @@ function timer:cycle_update()
             os.exit(1)
         end
 
-        self.cycles_until_increment = self:update_frequency()
+        self.cycles_until_increment = update_frequency(self)
     end
 end
 

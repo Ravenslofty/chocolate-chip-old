@@ -10,8 +10,8 @@
 local ffi = require("ffi")
 local mips = require("chocchip.mips")
 
-local band, bor = bit.band, bit.bor
-local lshift, rshift = bit.lshift, bit.rshift
+local band = bit.band
+local rshift = bit.rshift
 
 local decode = {}
 
@@ -321,7 +321,9 @@ function decode.decode(read4, pc)
 
     local stop_decoding = false
     local branch_delay_slot = false
-    local ops = {"local interpret = require(\"chocchip.r5900.interpret\")\n local s = _G[\"s\"]"}
+    local ops = {
+        "function x" .. bit.tohex(pc) .. "(s) ",
+    }
     local op_count = 0
 
     while stop_decoding == false do
@@ -352,8 +354,12 @@ function decode.decode(read4, pc)
             insn_shamt,
             ", ",
             insn_funct,
-            "); s:cycle_update()"
+            "); s:cycle_update(); "
         })
+
+        if op_count % 2 == 0 then
+            op = op .. "s:bus_cycle_update(); "
+        end
 
         stop_decoding = entry.table[opcode].can_except or branch_delay_slot
         branch_delay_slot = entry.table[opcode].can_branch
@@ -368,6 +374,7 @@ function decode.decode(read4, pc)
         op_count = op_count + 1
     end
 
+    ops[#ops+1] = " end"
     return table.concat(ops), op_count
 end
 

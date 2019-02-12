@@ -13,6 +13,7 @@ local interpret = {
     -- Branch delay slots.
     bd_cond = ffi.new("bool[2]"),
     bd_pc = ffi.new("uint32_t[2]"),
+    bd_slot = ffi.new("int32_t"),
     -- Program counter.
     pc = ffi.new("uint32_t"),
 
@@ -34,19 +35,19 @@ local interpret = {
 function interpret:cycle_update()
     self.cop0:cycle_update()
 
-    self.pc = ffi.cast("uint32_t", self.pc + 4)
+    self.pc = self.bd_cond[0] and self.bd_pc[0] or (self.pc + 4)
 
     -- Bus toggle
-    if self.bus_high then
+    --[[if self.bus_high then
         self.bus_cycle_update()
     end
-    self.bus_high = not self.bus_high
+    self.bus_high = not self.bus_high]]
 
     -- Branch delay slot
-    if self.bd_cond[0] == true then
+    --[[if self.bd_cond[0] == true then
         --io.write("Branching to ", bit.tohex(self.bd_pc[0]), "\n")
         self.pc = self.bd_pc[0]
-    end
+    end]]
 
     self.bd_cond[0] = self.bd_cond[1]
     self.bd_cond[1] = false
@@ -500,7 +501,7 @@ function interpret:lw(_, rs, rt, rd, shamt, funct)
     local rs_lo = self:read_gpr32(rs, 0)
     local addr = rs_lo + imm
 
-    assert(addr % 4 == 0, "lw: address " .. bit.tohex(addr) .. "not naturally aligned")
+    assert(band(addr, 3) == 0, "lw: address not naturally aligned")
 
     local value = self.read4(addr)
     self.write_gpr32_i64(rt, value)

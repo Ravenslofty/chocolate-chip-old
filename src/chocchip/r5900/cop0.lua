@@ -6,8 +6,10 @@ local cop0 = {
     -- 32 32-bit system control coprocessor registers.
     gprs = ffi.new("uint32_t[32]"),
 
-    -- COP0 register names
-    reg_names = utils.protect({
+}
+
+-- COP0 register names
+local reg_names = utils.protect({
         INDEX = 0,
         RANDOM = 1,
         ENTRY_LO0 = 2,
@@ -35,8 +37,6 @@ local cop0 = {
         ERROREPC = 30,
         -- 31 is reserved.
     })
-}
-
 -- Not all the COP0 registers are valid.
 function cop0.valid_gpr(reg)
     return true
@@ -67,20 +67,21 @@ function cop0:write_gpr(reg, value)
 end
 
 -- Update after a cycle.
+-- TODO: TLB update after each cycle.
 function cop0:cycle_update()
     -- Update Random register.
-    self.gprs[self.reg_names.RANDOM] = self.gprs[self.reg_names.RANDOM] - 1
-    if self.gprs[self.reg_names.RANDOM] == self.gprs[self.reg_names.WIRED] then
-        self:write_gpr(self.reg_names.RANDOM, 47)
-    end
+    --[[self.gprs[reg_names.RANDOM] = self.gprs[reg_names.RANDOM] - 1
+    if self.gprs[reg_names.RANDOM] == 0 then -- HACK: should be `self.gprs[reg_names.WIRED] then`
+        self:write_gpr(reg_names.RANDOM, 47)
+    end]]
 end
 
 -- Create a new COP0.
 function cop0:new()
     ffi.fill(self.gprs, 32*ffi.sizeof("uint32_t"))
 
-    self:write_gpr(self.reg_names.RANDOM, 47)
-    self:write_gpr(self.reg_names.PRID, 0x2E10)
+    self:write_gpr(reg_names.RANDOM, 47)
+    self:write_gpr(reg_names.PRID, 0x2E10)
 
     return self
 end
