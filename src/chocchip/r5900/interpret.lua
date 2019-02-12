@@ -4,7 +4,7 @@ local bit = require("bit")
 --local tlb = require("chocchip.r5900.tlb")
 local cop0 = require("chocchip.r5900.cop0")
 
-local band, bor = bit.band, bit.bor
+local bnot, band, bor, bxor = bit.bnot, bit.band, bit.bor, bit.bxor
 local lshift, rshift, arshift = bit.lshift, bit.rshift, bit.arshift
 
 local interpret = {
@@ -339,6 +339,28 @@ function interpret:daddiu(_, rs, rt, rd, shamt, funct)
     self:write_gpr64(rt, value)
 end
 
+-- 64-bit Subtract.
+function interpret:dsub(_, rs, rt, rd, _, _)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = rs_full - rt_full
+    if value > rs_full then
+        self:generate_overflow_exception()
+    else
+        self:write_gpr64(rd, value)
+    end
+end
+
+-- 64-bit Subtract Unsigned.
+function interpret:dsubu(_, rs, rt, rd, _, _)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = rs_full - rt_full
+    self:write_gpr64(rd, value)
+end
+
 -- 64-bit Shift Left Logical.
 function interpret:dsll(_, _, rt, rd, shamt, _)
     local rt_full = self:read_gpr64(rt, 0)
@@ -347,11 +369,62 @@ function interpret:dsll(_, _, rt, rd, shamt, _)
     self:write_gpr64(rd, value)
 end
 
+-- 64-bit Shift Right Logical.
+function interpret:dsrl(_, _, rt, rd, shamt, _)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = rshift(rt_full, shamt)
+    self:write_gpr64(rd, value)
+end
+
+-- 64-bit Shift Right Arithmetic.
+function interpret:dsra(_, _, rt, rd, shamt, _)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = arshift(rt_full, shamt)
+    self:write_gpr64(rd, value)
+end
+
+-- 64-bit Shift Left Logical Variable
+function interpret:dsllv(_, rs, rt, rd, _, _)
+    local rs_lo = band(self:read_gpr32(rs, 0), 0x3F)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = lshift(rt_full, rs_lo)
+    self:write_gpr64(rd, value)
+end
+
+-- 64-bit Shift Right Logical Variable
+function interpret:dsrlv(_, rs, rt, rd, _, _)
+    local rs_lo = band(self:read_gpr32(rs, 0), 0x3F)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = rshift(rt_full, rs_lo)
+    self:write_gpr64(rd, value)
+end
+
+-- 64-bit Shift Right Arithmetic Variable
+function interpret:dsrav(_, rs, rt, rd, _, _)
+    local rs_lo = band(self:read_gpr32(rs, 0), 0x3F)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = arshift(rt_full, rs_lo)
+    self:write_gpr64(rd, value)
+end
+
 -- 64-bit Shift Left Logical plus 32.
 function interpret:dsll32(_, _, rt, rd, shamt, _)
     local rt_full = self:read_gpr64(rt, 0)
 
     local value = lshift(rt_full, shamt + 32)
+    self:write_gpr64(rd, value)
+end
+
+-- 64-bit Shift Right Logical plus 32.
+function interpret:dsrl32(_, _, rt, rd, shamt, _)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = rshift(rt_full, shamt + 32)
     self:write_gpr64(rd, value)
 end
 
@@ -456,6 +529,36 @@ function interpret:mtc0(_, _, rt, rd, _, _)
     self.cop0:write_gpr(rd, value)
 end
 
+-- Copy rs to rd if rt is nonzero.
+function interpret:movn(_, rs, rt, rd, _, _)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    if rt_full ~= 0 then
+        self:write_gpr64(rd, rs_full)
+    end
+end
+
+-- Copy rs to rd if rt is zero.
+function interpret:movz(_, rs, rt, rd, _, _)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    if rt_full == 0 then
+        self:write_gpr64(rd, rs_full)
+    end
+end
+
+-- NOR.
+function interpret:nor(_, rs, rt, rd, _, _)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = bnot(bor(rs_full, rt_full))
+
+    self:write_gpr64(rd, value)
+end
+
 -- Store a 16-bit halfword in memory.
 function interpret:sh(_, rs, rt, rd, shamt, funct)
     local imm = self.create_imm16(rd, shamt, funct)
@@ -496,6 +599,29 @@ function interpret:sd(_, rs, rt, rd, shamt, funct)
 
     self.write4(addr, rt_lo)
     self.write4(addr+4, rt_hi)
+end
+
+-- Subtract.
+function interpret:sub(_, rs, rt, rd, _, _)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local rt_lo = self:read_gpr32(rt, 0)
+
+    local value = rs_lo - rt_lo
+    if value > rs_lo then
+        self:generate_overflow_exception()
+    else
+        self:write_gpr32_i64(rd, value)
+    end
+end
+
+-- Subtract Unsigned.
+function interpret:subu(_, rs, rt, rd, _, _)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local rt_lo = self:read_gpr32(rt, 0)
+
+    local value = rs_lo - rt_lo
+
+    self:write_gpr32_i64(rd, value)
 end
 
 -- Shift Left Logical.
@@ -555,6 +681,22 @@ function interpret:srav(_, rs, rt, rd, _, _)
     self:write_gpr32_i64(rd, value)
 end
 
+-- Set a bit if rs is less than rt. (signed)
+function interpret:slt(_, rs, rt, rd, _, _)
+    local rs_full = ffi.cast("int64_t", self:read_gpr64(rs, 0))
+    local rt_full = ffi.cast("int64_t", self:read_gpr64(rt, 0))
+
+    self:write_gpr64(rd, ffi.cast("uint64_t", rs_full < rt_full))
+end
+
+-- Set a bit if rs is less than rt. (unsigned)
+function interpret:sltu(_, rs, rt, rd, _, _)
+    local rs_full = ffi.cast("uint64_t", self:read_gpr64(rs, 0))
+    local rt_full = ffi.cast("uint64_t", self:read_gpr64(rt, 0))
+
+    self:write_gpr64(rd, ffi.cast("uint64_t", rs_full < rt_full))
+end
+
 -- Set a bit if the source is less than an immediate.
 function interpret:slti(_, rs, rt, rd, shamt, funct)
     local imm = self.create_imm16(rd, shamt, funct)
@@ -567,6 +709,16 @@ end
 -- Synchronise the pipeline.
 -- TODO: with full pipeline emulation, this should halt for ~6 cycles.
 function interpret:sync(_, _, _, _, _, _)
+end
+
+-- Exclusive OR.
+function interpret:xor(_, rs, rt, rd, _, _)
+    local rs_full = self:read_gpr64(rs, 0)
+    local rt_full = self:read_gpr64(rt, 0)
+
+    local value = bxor(rs_full, rt_full)
+
+    self:write_gpr64(rd, value)
 end
 
 -- Initialise the interpreter.

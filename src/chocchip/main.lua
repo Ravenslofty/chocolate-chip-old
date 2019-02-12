@@ -200,7 +200,7 @@ function main.run()
             io.write(string.format("%d: %s%s\n", N, bit.tohex(s:read_gpr64(N, 1)), bit.tohex(s:read_gpr64(N, 0))))
         end]]
         local pc = tonumber(s.pc)
-        --assert(pc ~= 0, "jumped to zero")
+        assert(pc ~= 0, "jumped to zero")
         if t[pc] == nil then
             io.write("PC: ", bit.tohex(pc), "\n")
             local f, c = r5900_decode.decode(r5900_interpret.read4, pc)
@@ -230,4 +230,4 @@ io.write("register state:\n")
 main.registers()
 io.write("executed instructions: ", tostring(insns_executed), "\n")
 
---return main
+return main
