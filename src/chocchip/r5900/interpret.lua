@@ -10,6 +10,8 @@ local lshift, rshift, arshift = bit.lshift, bit.rshift, bit.arshift
 local interpret = {
     -- 32 128-bit general-purpose registers.
     gprs = ffi.new("uint32_t[32][4]"),
+    lo = ffi.new("uint64_t[2]"),
+    hi = ffi.new("uint64_t[2]"),
     -- Branch delay slots.
     bd_cond = ffi.new("bool[2]"),
     bd_pc = ffi.new("uint32_t[2]"),
@@ -36,18 +38,6 @@ function interpret:cycle_update()
     self.cop0:cycle_update()
 
     self.pc = self.bd_cond[0] and self.bd_pc[0] or (self.pc + 4)
-
-    -- Bus toggle
-    --[[if self.bus_high then
-        self.bus_cycle_update()
-    end
-    self.bus_high = not self.bus_high]]
-
-    -- Branch delay slot
-    --[[if self.bd_cond[0] == true then
-        --io.write("Branching to ", bit.tohex(self.bd_pc[0]), "\n")
-        self.pc = self.bd_pc[0]
-    end]]
 
     self.bd_cond[0] = self.bd_cond[1]
     self.bd_cond[1] = false
@@ -84,6 +74,7 @@ end
 
 -- Write a 32-bit value to a register, sign-extending it to 64-bit.
 function interpret:write_gpr32_i64(reg, value)
+    assert(reg >= 0 and reg <= 31, "write_gpr32_i64: register is out of range")
     if reg ~= 0 then
         local sign = band(value, lshift(1, 31))
 
@@ -106,14 +97,21 @@ function interpret:write_gpr64(reg, value)
 
         self.gprs[reg][0] = lo
         self.gprs[reg][1] = hi
-
     end
     --io.write(string.format("$%d <- 0x%s%s\n", reg, bit.tohex(self.gprs[reg][1]), bit.tohex(self.gprs[reg][0])))
 end
 
 -- MIPS sometimes sign-extends immediates.
+function interpret.sign_extend_8_64(value)
+    return arshift(lshift(ffi.cast("uint64_t", value), 56), 56)
+end
+
 function interpret.sign_extend_16_64(value)
     return arshift(lshift(ffi.cast("uint64_t", value), 48), 48)
+end
+
+function interpret.sign_extend_32_64(value)
+    return arshift(lshift(ffi.cast("uint64_t", value), 32), 32)
 end
 
 -- MIPS sometimes zero-extends immediates.
@@ -139,8 +137,7 @@ end
 
 -- Software breakpoint.
 function interpret:generate_breakpoint_exception()
-    print("NYI: Breakpoint Exception")
-    os.exit(1)
+    assert(false, "NYI: Breakpoint Exception")
 end
 
 -- Illegal instruction.
@@ -437,6 +434,42 @@ function interpret:dsra32(_, _, rt, rd, shamt, _)
     self:write_gpr64(rd, value)
 end
 
+-- Signed division.
+function interpret:div(_, rs, rt, _, _, _)
+    local rs_lo = ffi.cast("int32_t", self:read_gpr32(rs, 0))
+    local rt_lo = ffi.cast("int32_t", self:read_gpr32(rt, 0))
+
+    local div = rs_lo / rt_lo
+    local rem = rs_lo % rt_lo
+
+    self.lo[0] = self.sign_extend_32_64(div)
+    self.hi[0] = self.sign_extend_32_64(rem)
+end
+
+-- Signed division.
+function interpret:div1(_, rs, rt, _, _, _)
+    local rs_lo = ffi.cast("int32_t", self:read_gpr32(rs, 0))
+    local rt_lo = ffi.cast("int32_t", self:read_gpr32(rt, 0))
+
+    local div = rs_lo / rt_lo
+    local rem = rs_lo % rt_lo
+
+    self.lo[1] = self.sign_extend_32_64(div)
+    self.hi[1] = self.sign_extend_32_64(rem)
+end
+
+-- Unsigned division.
+function interpret:divu(_, rs, rt, _, _, _)
+    local rs_lo = ffi.cast("uint32_t", self:read_gpr32(rs, 0))
+    local rt_lo = ffi.cast("uint32_t", self:read_gpr32(rt, 0))
+
+    local div = rs_lo / rt_lo
+    local rem = rs_lo % rt_lo
+
+    self.lo[0] = self.sign_extend_32_64(div)
+    self.hi[0] = self.sign_extend_32_64(rem)
+end
+
 -- Jump to immediate address.
 function interpret:j(_, rs, rt, rd, shamt, funct)
     local addr = self.create_imm26(rs, rt, rd, shamt, funct)
@@ -468,6 +501,20 @@ function interpret:jalr(_, rs, _, rd, _, _)
     self.bd_cond[1] = true
     self.bd_pc[1] = self:read_gpr32(rs, 0)
     self:write_gpr64(rd, ra)
+end
+
+-- Load an 8-bit word from memory and sign-extend it.
+function interpret:lb(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = ffi.cast("int32_t", imm)
+    local rs_lo = self:read_gpr32(rs, 0)
+    local addr = rs_lo + imm
+
+    local value = self.read4(addr)
+    value = rshift(value, 24)
+    value = self.sign_extend_8_64(value)
+    assert(value ~= nil)
+    self:write_gpr64(rt, value)
 end
 
 -- Load an 8-bit word from memory and zero-extend it.
@@ -504,7 +551,8 @@ function interpret:lw(_, rs, rt, rd, shamt, funct)
     assert(band(addr, 3) == 0, "lw: address not naturally aligned")
 
     local value = self.read4(addr)
-    self.write_gpr32_i64(rt, value)
+
+    self:write_gpr32_i64(rt, value)
 end
 
 -- Load 16-bit immediate in upper 16-bits and zero lower 16-bits.
@@ -530,6 +578,16 @@ function interpret:mtc0(_, _, rt, rd, _, _)
     self.cop0:write_gpr(rd, value)
 end
 
+-- Copy value from LO register.
+function interpret:mflo(_, _, _, rd, _, _)
+    self:write_gpr64(rd, self.lo[0])
+end
+
+-- Copy value from LO1 register.
+function interpret:mflo1(_, _, _, rd, _, _)
+    self:write_gpr64(rd, self.lo[1])
+end
+
 -- Copy rs to rd if rt is nonzero.
 function interpret:movn(_, rs, rt, rd, _, _)
     local rs_full = self:read_gpr64(rs, 0)
@@ -548,6 +606,32 @@ function interpret:movz(_, rs, rt, rd, _, _)
     if rt_full == 0 then
         self:write_gpr64(rd, rs_full)
     end
+end
+
+-- Signed Multiply.
+-- TODO: interlocking
+function interpret:mult(_, rs, rt, rd, _, _)
+    local rs_full = ffi.cast("int64_t", self:read_gpr32(rs, 0))
+    local rt_full = ffi.cast("int64_t", self:read_gpr32(rt, 0))
+
+    local value = rs_full * rt_full
+
+    self.write_gpr32_i64(rd, band(value, 0xFFFFFFFF))
+    self.lo[0] = self.sign_extend_32_64(band(value, 0xFFFFFFFF))
+    self.hi[0] = self.sign_extend_32_64(rshift(value, 32))
+end
+
+-- Unsigned Multiply.
+-- TODO: interlocking
+function interpret:multu(_, rs, rt, rd, _, _)
+    local rs_full = ffi.cast("uint64_t", self:read_gpr32(rs, 0))
+    local rt_full = ffi.cast("uint64_t", self:read_gpr32(rt, 0))
+
+    local value = rs_full * rt_full
+
+    self.write_gpr32_i64(rd, band(value, 0xFFFFFFFF))
+    self.lo[0] = self.sign_extend_32_64(band(value, 0xFFFFFFFF))
+    self.hi[0] = self.sign_extend_32_64(rshift(value, 32))
 end
 
 -- NOR.
@@ -707,6 +791,15 @@ function interpret:slti(_, rs, rt, rd, shamt, funct)
     self:write_gpr64(rd, ffi.cast("uint64_t", rs_full < imm))
 end
 
+-- Set a bit if the source is less than an immediate.
+function interpret:sltiu(_, rs, rt, rd, shamt, funct)
+    local imm = self.create_imm16(rd, shamt, funct)
+    imm = ffi.cast("uint64_t", self.sign_extend_16_64(imm))
+    local rs_full = ffi.cast("uint64_t", self:read_gpr64(rs, 0))
+
+    self:write_gpr64(rd, ffi.cast("uint64_t", rs_full < imm))
+end
+
 -- Synchronise the pipeline.
 -- TODO: with full pipeline emulation, this should halt for ~6 cycles.
 function interpret:sync(_, _, _, _, _, _)
@@ -725,6 +818,8 @@ end
 -- Initialise the interpreter.
 function interpret:new(pc)
     ffi.fill(self.gprs, 32*ffi.sizeof("uint32_t"))
+    self.lo = ffi.new("uint64_t[2]")
+    self.hi = ffi.new("uint64_t[2]")
 
     self.bd_cond[0] = false
     self.bd_cond[1] = false

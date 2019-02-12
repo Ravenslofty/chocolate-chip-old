@@ -23,6 +23,8 @@ ffi.cdef[[
         bool can_branch;
         // This instruction could raise an exception, so a conditional goto is generated.
         bool can_except;
+        // This instruction has "likely branch" semantics, so a branch is generated.
+        bool is_likely;
     } DecodeTableEntry;
 
     typedef struct DecodeTable {
@@ -52,7 +54,7 @@ local special_table = ffi.new("DecodeTableEntry[64]", {
     { "movz", false, false },
     { "movn", false, false },
     { "syscall", true, true },
-    { "break", true, true },
+    { "bbreak", true, true },
     { "reserved_instruction", true, true },
     { "sync", false, false },
     { "mfhi", false, false },
@@ -110,8 +112,8 @@ local special_table = ffi.new("DecodeTableEntry[64]", {
 local regimm_table = ffi.new("DecodeTableEntry[64]", {
     { "bltz", true, true },
     { "bgez", true, false },
-    { "bltzl", true, true },
-    { "bgezl", true, true },
+    { "bltzl", true, true, true },
+    { "bgezl", true, true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
@@ -126,8 +128,8 @@ local regimm_table = ffi.new("DecodeTableEntry[64]", {
     { "reserved_instruction", true, true },
     { "bltzal", true, true },
     { "bgezal", true, true },
-    { "bltzall", true, true },
-    { "bgezall", true, true },
+    { "bltzall", true, true, true },
+    { "bgezall", true, true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
     { "reserved_instruction", true, true },
@@ -179,6 +181,74 @@ local cop0_table = ffi.new("DecodeTableEntry[64]", {
     { "reserved_instruction", true, true },
 })
 
+-- Sony's MultiMedia Instructions, mostly integer SIMD.
+local mmi_table = ffi.new("DecodeTableEntry[64]", {
+    { "madd", true, true },
+    { "maddu", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "plzcw", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "mmi0", true, true },
+    { "mmi2", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "mfhi1", true, true },
+    { "mthi1", true, true },
+    { "mflo1", false, false },
+    { "mtlo1", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "mult1", true, true },
+    { "multu1", true, true },
+    { "div1", false, false },
+    { "divu1", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "madd1", true, true },
+    { "maddu1", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "mmi1", true, true },
+    { "mmi3", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "pmfhl", true, true },
+    { "pmthl", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "psllh", true, true },
+    { "reserved_instruction", true, true },
+    { "psrlh", true, true },
+    { "psrah", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "reserved_instruction", true, true },
+    { "psllw", true, true },
+    { "reserved_instruction", true, true },
+    { "psrlw", true, true },
+    { "psraw", true, true },
+})
+
 -- All other MIPS opcodes go here.
 local general_table = ffi.new("DecodeTableEntry[64]", {
     { "special_decode_bug", true, true }, -- SPECIAL, hopefully unreachable.
@@ -201,10 +271,10 @@ local general_table = ffi.new("DecodeTableEntry[64]", {
     { "cop1_decode_bug", true, true }, -- COP1, hopefully unreachable.
     { "cop2_decode_bug", true, true }, -- COP2, hopefully unreachable.
     { "cop3_decode_bug", true, true }, -- COP3 was removed in MIPS III.
-    { "beql", true, true },
-    { "bnel", true, true },
-    { "blezl", true, true },
-    { "bgtzl", true, true },
+    { "beq", true, false, true }, -- BEQL is treated like BEQ with conditional delay slot.
+    { "bne", true, false, true }, -- BNEL is treated like BNE with conditional delay slot.
+    { "blezl", true, true, true },
+    { "bgtzl", true, true, true },
     { "daddi", false, true },
     { "daddiu", false, true },
     { "ldl", false, true },
@@ -213,7 +283,7 @@ local general_table = ffi.new("DecodeTableEntry[64]", {
     { "reserved_instruction", true, true },
     { "lq", false, true },
     { "sq", false, true },
-    { "lb", false, true },
+    { "lb", false, false }, -- TODO: Change can_except to true because of MMU failure.
     { "lh", false, true },
     { "lwl", false, true },
     { "lw", false, false }, -- TODO: Change can_except to true because of MMU failure.
@@ -277,7 +347,7 @@ local decode_table = ffi.new("DecodeTable[64]", {
     { 26, 0x3F, general_table },
     { 26, 0x3F, general_table },
     { 26, 0x3F, general_table },
-    { 26, 0x3F, general_table },
+    { 0, 0x3F, mmi_table },
     { 26, 0x3F, general_table },
     { 26, 0x3F, general_table },
     { 26, 0x3F, general_table },
@@ -321,6 +391,7 @@ function decode.decode(read4, pc)
 
     local stop_decoding = false
     local branch_delay_slot = false
+    local likely_branch = false
     local ops = {
         "function x" .. bit.tohex(pc) .. "(s) ",
     }
@@ -365,13 +436,22 @@ function decode.decode(read4, pc)
         branch_delay_slot = entry.table[opcode].can_branch
 
         if entry.table[opcode].can_except then
-            io.write(ffi.string(entry.table[opcode].name), " can raise exception; finishing trace")
+            io.write(ffi.string(entry.table[opcode].name), " can raise exception; finishing trace\n")
         end
         --io.write(bit.tohex(pc), " ", bit.tohex(insn), ": ", op, "\n")
 
         ops[#ops+1] = op
         pc = pc + 4
         op_count = op_count + 1
+
+        if entry.table[opcode].is_likely then
+            likely_branch = true
+            ops[#ops+1] = "\nif s.bd_cond[0] then "
+        end
+    end
+
+    if likely_branch then
+        ops[#ops+1] = "\nelse s:cycle_update() end"
     end
 
     ops[#ops+1] = " end"

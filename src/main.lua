@@ -5,9 +5,9 @@ require("jit.opt").start(
 
 local main = require("chocchip.main")
 
+--main.run()
 xpcall(main.run, main.crash)
 io.write("register state:\n")
 main.registers()
-io.write("executed instructions: ", tostring(insns_executed), "\n")
 
 

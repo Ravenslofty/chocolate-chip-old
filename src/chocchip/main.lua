@@ -9,33 +9,9 @@ local r5900_timer = require("chocchip.r5900.timer")
 local band, bor = bit.band, bit.bor
 local lshift, rshift = bit.lshift, bit.rshift
 
-local main = {
-   setup = false,
-
-   -- RDRAM.
-   rdram = nil,
-   rdram_size = 0,
-
-   -- DMAC registers.
-   dmac_config_reg = nil,
-
-   -- GS privileged registers.
-   gs_special_reg = nil,
-   gs_config_reg = nil,
-
-   -- BIOS data.
-   bios = nil,
-
-   -- R5900 CPU.
-   tlb = nil,
-   timers = nil,
-}
+local main = {}
 
 function main:init()
-   if self.setup then
-      return
-   end
-
    -- Load BIOS
    local f = assert(io.open("bios.bin", "r"), "Couldn't open BIOS")
    local data = f:read("*all")
@@ -49,7 +25,7 @@ function main:init()
    self.spram = ffi.new("uint8_t[16*1024]")
 
    --self.tlb = r5900_tlb:new()
-   self.timers = { r5900_timer:new(), r5900_timer:new(), r5900_timer:new(), r5900_timer:new() }
+   self.timers = { r5900_timer.new(), r5900_timer.new(), r5900_timer.new(), r5900_timer.new() }
    self.dmac_config_reg = ffi.new("uint32_t[16]")
    self.gs_special_reg = ffi.new("uint64_t[16]")
    self.gs_config_reg = ffi.new("uint64_t[16]")
@@ -81,16 +57,16 @@ function r5900_interpret.read4(vaddr)
             local byte = main.spram[paddr+i]
             data = bor(rshift(data, 8), lshift(byte, 24))
          end
+         return data
       else
       -- RDRAM.
-         data = bor(
+         return bor(
             main.rdram[paddr],
             lshift(main.rdram[paddr+1], 8),
             lshift(main.rdram[paddr+2], 16),
             lshift(main.rdram[paddr+3], 24)
          )
       end
-      return data
       -- Timers.
    elseif paddr >= 0x10000000 and paddr <= 0x100003f0 then
       local timer = tonumber(rshift(band(paddr, 0xf00), 8) + 1)
@@ -118,7 +94,7 @@ function r5900_interpret.read4(vaddr)
    elseif paddr == 0x1f803204 or paddr == 0x1f801470 or paddr == 0x1f801472 then
       return 0
       -- BIOS ROM.
-   elseif paddr >= 0x1fc00000 and paddr <= 0x20000000 then -- luacheck: ignore
+   elseif paddr >= 0x1fc00000 and paddr < 0x20000000 then -- luacheck: ignore
       local addr = paddr - 0x1fc00000
       local data = 0
       for i=0,3 do
@@ -153,7 +129,13 @@ function r5900_interpret.write4(vaddr, data)
    elseif paddr >= 0x10000000 and paddr <= 0x100003f0 then
       local timer = tonumber(rshift(band(paddr, 0xf00), 8)) + 1
       local reg = rshift(band(paddr, 0xf0), 4)
-      main.timers[timer]:write_gpr(reg, data)
+      main.timers[timer]:write_gpr(reg, tonumber(data))
+      -- Serial I/O.
+   elseif paddr >= 0x1000f100 and paddr <= 0x1000f1f0 then
+      local reg = rshift(band(paddr, 0xf0), 4)
+      if reg == 8 then
+         io.write(string.char(tonumber(data)))
+      end
       -- DMAC configuration registers.
    elseif paddr >= 0x1000f500 and paddr <= 0x1000f5f0 then
       local reg = rshift(band(paddr, 0xf0), 4)
@@ -185,9 +167,9 @@ end
 
 function r5900_interpret:bus_cycle_update()
    main.timers[1]:cycle_update()
-   --main.timers[2]:cycle_update()
-   --main.timers[3]:cycle_update()
-   --main.timers[4]:cycle_update()
+   main.timers[2]:cycle_update()
+   main.timers[3]:cycle_update()
+   main.timers[4]:cycle_update()
 end
 
 main:init()
@@ -196,20 +178,22 @@ main:init()
 -- Used by the emitted functions
 s = r5900_interpret:new(0xBFC00000)
 
+local traces_generated = 0
 local traces_executed = 0
 local insns_executed = 0
 
 function main.run()
    local t = {}
    local count = {}
-   for i=0,10000 do
+   while true do
       --[[for N=3,3 do
       io.write(string.format("%d: %s%s\n", N, bit.tohex(s:read_gpr64(N, 1)), bit.tohex(s:read_gpr64(N, 0))))
       end]]
       local pc = tonumber(s.pc)
       assert(pc ~= 0, "jumped to zero")
       if t[pc] == nil then
-         --io.write("PC: ", bit.tohex(pc), "\n")
+         traces_generated = traces_generated + 1
+         io.write("PC: ", bit.tohex(pc), "\n")
          local f, c = r5900_decode.decode(r5900_interpret.read4, pc)
          --io.write(f, "\n")
          assert(load(f))()
@@ -218,7 +202,7 @@ function main.run()
       end
       t[pc]()
       insns_executed = insns_executed + count[pc]
-      traces_executed = i
+      traces_executed = traces_executed + 1
    end
 end
 
@@ -226,6 +210,7 @@ function main.registers()
    for reg=0,31 do
       print(reg, bit.tohex(s:read_gpr64(reg, 1)), bit.tohex(s:read_gpr64(reg, 0)))
    end
+   print("traces generated:", traces_generated)
    print("traces executed:", traces_executed)
    print("insns executed:", insns_executed)
 end
