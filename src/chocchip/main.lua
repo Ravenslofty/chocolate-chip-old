@@ -195,7 +195,9 @@ function main.run()
          traces_generated = traces_generated + 1
          io.write("PC: ", bit.tohex(pc), "\n")
          local f, c = r5900_decode.decode(r5900_interpret.read4, pc)
-         --io.write(f, "\n")
+         tracefile = assert(io.open("traces/" .. bit.tohex(pc) .. ".lua", "w"))
+         tracefile:write(f, "\n")
+         tracefile:close()
          assert(load(f))()
          count[pc] = c
          t[pc] = assert(load("x" .. bit.tohex(pc) .. "(s)"))

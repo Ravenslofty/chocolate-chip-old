@@ -535,7 +535,7 @@ function interpret:lhu(_, rs, rt, rd, shamt, funct)
     local rs_lo = self:read_gpr32(rs, 0)
     local addr = rs_lo + imm
 
-    assert(addr % 2 == 0, "lhu: address not naturally aligned")
+    assert(band(addr, 1) == 0, "lhu: address not naturally aligned")
 
     local value = rshift(self.read4(addr), 16)
     self.write_gpr64(rt, value)
@@ -652,7 +652,7 @@ function interpret:sh(_, rs, rt, rd, shamt, funct)
     local rt_lo = band(self:read_gpr32(rt, 0), 0xFFFF)
     local addr = rs_lo + imm
 
-    assert(addr % 2 == 0, "sh: address not naturally aligned")
+    assert(band(addr, 1) == 0, "sh: address not naturally aligned")
 
     local data = band(self.read4(addr), 0xFFFF0000)
     self.write4(addr, bor(data, rt_lo))
@@ -666,7 +666,7 @@ function interpret:sw(_, rs, rt, rd, shamt, funct)
     local rt_lo = self:read_gpr32(rt, 0)
     local addr = rs_lo + imm
 
-    assert(addr % 4 == 0, "sw: address not naturally aligned")
+    assert(band(addr, 3) == 0, "sw: address not naturally aligned")
 
     self.write4(addr, rt_lo)
 end
@@ -680,7 +680,7 @@ function interpret:sd(_, rs, rt, rd, shamt, funct)
     local rt_hi = self:read_gpr32(rt, 1)
     local addr = rs_lo + imm
 
-    assert(addr % 8 == 0, "sd: address not naturally aligned")
+    assert(band(addr, 7) == 0, "sd: address not naturally aligned")
 
     self.write4(addr, rt_lo)
     self.write4(addr+4, rt_hi)

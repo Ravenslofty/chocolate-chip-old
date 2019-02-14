@@ -435,6 +435,9 @@ function decode.decode(read4, pc)
         stop_decoding = entry.table[opcode].can_except or branch_delay_slot
         branch_delay_slot = entry.table[opcode].can_branch
 
+        -- This is a warning for opcodes with the exception flag set, because I copy/paste the reserved_instruction
+        -- entry, and change just the opcode names at first. This breaks branches, which don't get their branch delay
+        -- slot, and is inefficient for most other instructions because it forces creation of unnecessary traces.
         if entry.table[opcode].can_except then
             io.write(ffi.string(entry.table[opcode].name), " can raise exception; finishing trace\n")
         end
