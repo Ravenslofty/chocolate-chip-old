@@ -9,6 +9,7 @@ end
 local function shift32_immediate(self, _, _, second_source, destination, shift_amount, function_field)
     local op_table = {
         [0x00] = "lshift", -- SLL
+        -- 0x01 is illegal
         [0x02] = "rshift", -- SRL
         [0x03] = "arshift" -- SRA
     }
