@@ -153,8 +153,8 @@ local function bitop_register(self, _, first_source, second_source, destination,
     local op_table = {
         [0x24] = "band",     -- AND
         [0x25] = "bor",      -- OR
-        [0x16] = "bxor",     -- XOR
-        [0x17] = "bnot(bor(" -- NOR
+        [0x26] = "bxor",     -- XOR
+        [0x27] = "bnot(bor(" -- NOR
     }
 
     local end_bracket = {
