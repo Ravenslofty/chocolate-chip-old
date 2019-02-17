@@ -256,6 +256,53 @@ local function addsub_register(self, _, first_source, second_source, destination
     return table.concat(op)
 end
 
+local function conditional_trap(self, _, first_source, second_source, _, _, function_field)
+    local op_table = {
+        [0x30] = ">=", -- TGE
+        [0x31] = ">=", -- TGEU
+        [0x32] = "<",  -- TLT
+        [0x33] = "<",  -- TLTU
+        [0x34] = "==", -- TEQ
+        -- 0x35 is illegal
+        [0x36] = "~=", -- TNE
+        -- 0x37 is illegal
+    }
+
+    local compare_type = {
+        [0x30] = "int64_t", -- TGE
+        [0x31] = "uint64_t", -- TGEU
+        [0x32] = "int64_t",  -- TLT
+        [0x33] = "uint64_t",  -- TLTU
+        [0x34] = "int64_t", -- TEQ
+        -- 0x35 is illegal
+        [0x36] = "int64_t", -- TNE
+        -- 0x37 is illegal
+    }
+
+    first_source = decode_mips.register_name(first_source)
+    second_source = decode_mips.register_name(second_source)
+
+    local op = {
+        -- Operands
+        self:declare_source(first_source),
+        self:declare_source(second_source),
+        -- Operate
+        "assert(ffi.cast(\"",
+        compare_type[function_field],
+        "\", ",
+        first_source,
+        ") ",
+        op_table[function_field],
+        " ffi.cast(\"",
+        compare_type[function_field],
+        "\", ",
+        second_source,
+        ") ,\"conditional trap\")\n"
+    }
+
+    return table.concat(op)
+end
+
 local special_table = {
     shift_immediate,        -- SLL
     illegal_instruction,
@@ -305,13 +352,13 @@ local special_table = {
     addsub_register,        -- DADDU
     addsub_register,        -- DSUB
     addsub_register,        -- DSUBU
-    {},                     -- TGE
-    {},                     -- TGEU
-    {},                     -- TLT
-    {},                     -- TLTU
-    {},                     -- TEQ
+    conditional_trap,       -- TGE
+    conditional_trap,       -- TGEU
+    conditional_trap,       -- TLT
+    conditional_trap,       -- TLTU
+    conditional_trap,       -- TEQ
     illegal_instruction,
-    {},                     -- TNE
+    conditional_trap,       -- TNE
     illegal_instruction,
     shift_immediate,        -- DSLL
     illegal_instruction,
