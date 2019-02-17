@@ -2,6 +2,15 @@ local decode_mips = require("cc2.decode_mips")
 
 local decode = {}
 
+local function sign_extend_32_64(register)
+    return table.concat({
+        destination,
+        " = arshift(lshift(", 
+        destination, 
+        ", 32), 32)\n"
+    })
+end
+
 local function illegal_instruction(_, _, _, _, _, _, _)
     return false, ""
 end
@@ -18,8 +27,10 @@ local function shift32_immediate(self, _, _, second_source, destination, shift_a
     destination = decode_mips.register_name(destination)
 
     local op = {
+        -- Operands
         self:declare_source(second_source),
         self:declare_destination(destination),
+        -- Shift
         destination,
         " = ",
         op_table[function_field],
@@ -27,6 +38,52 @@ local function shift32_immediate(self, _, _, second_source, destination, shift_a
         second_source,
         ", ",
         tostring(shift_amount),
+        ")\n",
+        -- Sign-extend
+        sign_extend_32_64(destination)
+    }
+
+    return table.concat(op)
+end
+
+local function shift64_immediate(self, _, _, second_source, destination, shift_amount, function_field)
+    local op_table = {
+        [0x38] = "lshift",  -- DSLL
+        -- 0x39 is illegal
+        [0x3A] = "rshift",  -- DSRL
+        [0x3B] = "arshift", -- DSRA
+        [0x3C] = "lshift",  -- DSLL32
+        -- 0x3D is illegal
+        [0x3E] = "rshift",  -- DSRL32
+        [0x3F] = "arshift"  -- DSRA32
+    }
+
+    local shift_base = {
+        [0x38] = 0,  -- DSLL
+        -- 0x39 is illegal
+        [0x3A] = 0,  -- DSRL
+        [0x3B] = 0,  -- DSRA
+        [0x3C] = 32, -- DSLL32
+        -- 0x3D is illegal
+        [0x3E] = 32, -- DSRL32
+        [0x3F] = 32  -- DSRA32
+    }
+
+    second_source = decode_mips.register_name(second_source)
+    destination = decode_mips.register_name(destination)
+
+    local op = {
+        -- Operands
+        self:declare_source(second_source),
+        self:declare_destination(destination),
+        -- Shift
+        destination,
+        " = ",
+        op_table[function_field],
+        "(",
+        second_source,
+        ", ",
+        tostring(shift_base[function_field] + shift_amount),
         ")\n"
     }
 
@@ -34,10 +91,10 @@ local function shift32_immediate(self, _, _, second_source, destination, shift_a
 end
 
 local special_table = {
-    shift32_immediate,
+    shift32_immediate,      -- SLL
     illegal_instruction,
-    shift32_immediate,
-    shift32_immediate,
+    shift32_immediate,      -- SRL
+    shift32_immediate,      -- SRA
     {},
     {},
     {},
@@ -90,14 +147,14 @@ local special_table = {
     {},
     {},
     {},
-    {},
-    {},
-    {},
-    {},
-    {},
-    {},
-    {},
-    {},
+    shift32_immediate,      -- DSLL
+    illegal_instruction,
+    shift32_immediate,      -- DSRL
+    shift32_immediate,      -- DSRA
+    shift32_immediate,      -- DSLL32
+    illegal_instruction,
+    shift32_immediate,      -- DSRL32
+    shift32_immediate,      -- DSRA32
 }
 
 local decode_table = {
