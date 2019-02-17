@@ -69,10 +69,8 @@ local function shift_immediate(self, _, _, second_source, destination, shift_amo
     local op = {
         -- Operands
         self:declare_source(second_source),
-        self:declare_destination(destination),
         -- Shift
-        destination,
-        " = ",
+        self:declare_destination(destination),
         op_table[function_field],
         "(",
         second_source,
@@ -85,7 +83,7 @@ local function shift_immediate(self, _, _, second_source, destination, shift_amo
         op[#op + 1] = sign_extend_32_64(destination)
     end
 
-    return table.concat(op)
+    return true, table.concat(op)
 end
 
 local function shift_variable(self, _, first_source, second_source, destination, _, function_field)
@@ -134,8 +132,6 @@ local function shift_variable(self, _, first_source, second_source, destination,
         self:declare_source(second_source),
         self:declare_destination(destination),
         -- Shift
-        destination,
-        " = ",
         op_table[function_field],
         "(",
         second_source,
@@ -146,7 +142,7 @@ local function shift_variable(self, _, first_source, second_source, destination,
         "))\n",
     }
 
-    return table.concat(op)
+    return true, table.concat(op)
 end
 
 local function bitop_register(self, _, first_source, second_source, destination, _, function_field)
@@ -172,10 +168,8 @@ local function bitop_register(self, _, first_source, second_source, destination,
         -- Operands
         self:declare_source(first_source),
         self:declare_source(second_source),
-        self:declare_destination(destination),
         -- Operate
-        destination,
-        " = ",
+        self:declare_destination(destination),
         op_table[function_field],
         "(",
         first_source,
@@ -186,7 +180,7 @@ local function bitop_register(self, _, first_source, second_source, destination,
         "\n"
     }
 
-    return table.concat(op)
+    return true, table.concat(op)
 end
 
 local function addsub_register(self, _, first_source, second_source, destination, _, function_field)
@@ -233,8 +227,8 @@ local function addsub_register(self, _, first_source, second_source, destination
         -- Operands
         self:declare_source(first_source),
         self:declare_source(second_source),
-        self:declare_destination(destination),
         -- Operate
+        self:declare_destination(destination),
         destination,
         " = ",
         first_source,
@@ -253,7 +247,7 @@ local function addsub_register(self, _, first_source, second_source, destination
         op[#op + 1] = sign_extend_32_64(destination)
     end
 
-    return table.concat(op)
+    return true, table.concat(op)
 end
 
 local function conditional_trap(self, _, first_source, second_source, _, _, function_field)
@@ -300,7 +294,37 @@ local function conditional_trap(self, _, first_source, second_source, _, _, func
         ") ,\"conditional trap\")\n"
     }
 
-    return table.concat(op)
+    return true, table.concat(op)
+end
+
+local function conditional_move(self, _, first_source, second_source, destination, _, function_field)
+    local op_table = {
+        [0x0A] = "==", -- MOVZ
+        [0x0B] = "~="  -- MOVN
+    }
+
+    first_source = decode_mips.register_name(first_source)
+    second_source = decode_mips.register_name(second_source)
+    destination = decode_mips.register_name(destination)
+
+    local op = {
+        -- Operands
+        self:declare_source(first_source),
+        self:declare_source(second_source),
+        -- MOV[N/Z] don't touch the destination register if the condition is false.
+        self:declare_source(destination), 
+        -- Operate
+        "if ",
+        second_source,
+        " ",
+        op_table[function_field],
+        " 0 then ",
+        self:declare_destination(destination),
+        first_source,
+        " end\n"
+    }
+
+    return true, table.concat(op)
 end
 
 local special_table = {
@@ -314,8 +338,8 @@ local special_table = {
     shift_variable,         -- SRAV
     {},                     -- JR
     {},                     -- JALR
-    {},                     -- MOVZ
-    {},                     -- MOVN
+    conditional_move,       -- MOVZ
+    conditional_move,       -- MOVN
     {},                     -- SYSCALL
     {},                     -- BREAK
     illegal_instruction,
@@ -452,17 +476,15 @@ local function declare_source(self, register)
 end
 
 local function declare_destination(self, register)
-    if self.declared[register] then
-        return ""
+    if register == "zero" then
+        return "local _ = " -- dead placeholder
     end
+
+    local prefix = self.declared[register] and "" or "local "
 
     self.declared[register] = true
-
-    if register ~= "zero" then
-        return "local "
-    end
-
-    return ""
+    
+    return prefix .. register .. " = "
 end
 
 function decode:new()
