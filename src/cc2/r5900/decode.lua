@@ -301,10 +301,10 @@ local special_table = {
     {},                     -- MTSA
     {},                     -- SLT
     {},                     -- SLTU
-    {},                     -- DADD
-    {},                     -- DADDU
-    {},                     -- DSUB
-    {},                     -- DSUBU
+    addsub_register,        -- DADD
+    addsub_register,        -- DADDU
+    addsub_register,        -- DSUB
+    addsub_register,        -- DSUBU
     {},                     -- TGE
     {},                     -- TGEU
     {},                     -- TLT
