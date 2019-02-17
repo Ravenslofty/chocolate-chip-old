@@ -46,6 +46,39 @@ local function shift32_immediate(self, _, _, second_source, destination, shift_a
     return table.concat(op)
 end
 
+local function shift32_variable(self, _, first_source, second_source, destination, _, function_field)
+    local op_table = {
+        [0x04] = "lshift", -- SLLV
+        -- 0x05 is illegal
+        [0x06] = "rshift", -- SRLV
+        [0x07] = "arshift" -- SRAV
+    }
+
+    first_source = decode_mips.register_name(first_source)
+    second_source = decode_mips.register_name(second_source)
+    destination = decode_mips.register_name(destination)
+
+    local op = {
+        -- Operands
+        self:declare_source(first_source),
+        self:declare_source(second_source),
+        self:declare_destination(destination),
+        -- Shift
+        destination,
+        " = ",
+        op_table[function_field],
+        "(",
+        second_source,
+        ", band(",
+        first_source,
+        "0x1F))\n",
+        -- Sign-extend
+        sign_extend_32_64(destination)
+    }
+
+    return table.concat(op)
+end
+
 local function shift64_immediate(self, _, _, second_source, destination, shift_amount, function_field)
     local op_table = {
         [0x38] = "lshift",  -- DSLL
@@ -90,11 +123,47 @@ local function shift64_immediate(self, _, _, second_source, destination, shift_a
     return table.concat(op)
 end
 
+local function shift64_variable(self, _, first_source, second_source, destination, _, function_field)
+    local op_table = {
+        [0x14] = "lshift", -- DSLLV
+        -- 0x15 is illegal
+        [0x16] = "rshift", -- DSRLV
+        [0x17] = "arshift" -- DSRAV
+    }
+
+    first_source = decode_mips.register_name(first_source)
+    second_source = decode_mips.register_name(second_source)
+    destination = decode_mips.register_name(destination)
+
+    local op = {
+        -- Operands
+        self:declare_source(first_source),
+        self:declare_source(second_source),
+        self:declare_destination(destination),
+        -- Shift
+        destination,
+        " = ",
+        op_table[function_field],
+        "(",
+        second_source,
+        ", band(",
+        first_source,
+        "0x3F))\n",
+    }
+
+    return table.concat(op)
+end
+
+
 local special_table = {
     shift32_immediate,      -- SLL
     illegal_instruction,
     shift32_immediate,      -- SRL
     shift32_immediate,      -- SRA
+    shift32_variable,       -- SLLV
+    illegal_instruction,
+    shift32_variable,       -- SRLV
+    shift32_variable,       -- SRAV
     {},
     {},
     {},
@@ -104,6 +173,10 @@ local special_table = {
     {},
     {},
     {},
+    shift64_variable,       -- DSLLV
+    illegal_instruction,
+    shift64_variable,       -- DSRLV
+    shift64_variable,       -- DSRAV
     {},
     {},
     {},
