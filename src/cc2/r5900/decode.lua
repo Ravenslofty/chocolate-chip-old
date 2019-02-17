@@ -173,7 +173,7 @@ local function bitop_register(self, _, first_source, second_source, destination,
         self:declare_source(first_source),
         self:declare_source(second_source),
         self:declare_destination(destination),
-        -- Shift
+        -- Operate
         destination,
         " = ",
         op_table[function_field],
@@ -185,6 +185,73 @@ local function bitop_register(self, _, first_source, second_source, destination,
         end_bracket[function_field],
         "\n"
     }
+
+    return table.concat(op)
+end
+
+local function addsub_register(self, _, first_source, second_source, destination, _, function_field)
+    local op_table = {
+        [0x20] = "+", -- ADD
+        [0x21] = "+", -- ADDU
+        [0x22] = "-", -- SUB
+        [0x23] = "-", -- SUBU
+        [0x2C] = "+", -- DADD
+        [0x2D] = "+", -- DADDU
+        [0x2E] = "-", -- DSUB
+        [0x2F] = "-"  -- DSUBU
+    }
+
+    -- 32-bit instructions need sign-extension
+    local needs_sign_extend = {
+        [0x20] = true,  -- ADD
+        [0x21] = true,  -- ADDU
+        [0x22] = true,  -- SUB
+        [0x23] = true,  -- SUBU
+        [0x2C] = false, -- DADD
+        [0x2D] = false, -- DADDU
+        [0x2E] = false, -- DSUB
+        [0x2F] = false  -- DSUBU
+    }
+
+    -- Non-U operations trap on overflow.
+    local needs_overflow_check = {
+        [0x20] = true,  -- ADD
+        [0x21] = false, -- ADDU
+        [0x22] = true,  -- SUB
+        [0x23] = false, -- SUBU
+        [0x2C] = true,  -- DADD
+        [0x2D] = false, -- DADDU
+        [0x2E] = true,  -- DSUB
+        [0x2F] = false  -- DSUBU
+    }
+
+    first_source = decode_mips.register_name(first_source)
+    second_source = decode_mips.register_name(second_source)
+    destination = decode_mips.register_name(destination)
+
+    local op = {
+        -- Operands
+        self:declare_source(first_source),
+        self:declare_source(second_source),
+        self:declare_destination(destination),
+        -- Operate
+        destination,
+        " = ",
+        first_source,
+        " ",
+        op_table[function_field],
+        " ",
+        second_source,
+        "\n"
+    }
+
+    if needs_overflow_check[function_field] then
+        -- TODO: Overflow checking.
+    end
+
+    if needs_sign_extend[function_field] then
+        op[#op + 1] = sign_extend_32_64(destination)
+    end
 
     return table.concat(op)
 end
@@ -222,10 +289,10 @@ local special_table = {
     illegal_instruction,    -- (DMULTU)
     illegal_instruction,    -- (DDIV)
     illegal_instruction,    -- (DDIVU)
-    {},                     -- ADD
-    {},                     -- ADDU
-    {},                     -- SUB
-    {},                     -- SUBU
+    addsub_register,        -- ADD
+    addsub_register,        -- ADDU
+    addsub_register,        -- SUB
+    addsub_register,        -- SUBU
     bitop_register,         -- AND
     bitop_register,         -- OR
     bitop_register,         -- XOR
