@@ -1,19 +1,7 @@
-local decode_mips = require("cc2.decode_mips")
+local mips = require("cc2.decode_mips")
+local util = require("cc2.r5900.decode_util")
 
 local decode = {}
-
-local function sign_extend_32_64(register)
-    return table.concat({
-        destination,
-        " = arshift(lshift(", 
-        destination, 
-        ", 32), 32)\n"
-    })
-end
-
-local function illegal_instruction(_, _, _, _, _, _, _)
-    return false, ""
-end
 
 local function shift_immediate(self, _, _, second_source, destination, shift_amount, function_field)
     local op_table = {
@@ -63,8 +51,8 @@ local function shift_immediate(self, _, _, second_source, destination, shift_amo
         [0x3F] = false  -- DSRA32
     }
 
-    second_source = decode_mips.register_name(second_source)
-    destination = decode_mips.register_name(destination)
+    second_source = mips.register_name(second_source)
+    destination = mips.register_name(destination)
 
     local op = {
         -- Operands
@@ -80,7 +68,7 @@ local function shift_immediate(self, _, _, second_source, destination, shift_amo
     }
 
     if needs_sign_extend[function_field] then
-        op[#op + 1] = sign_extend_32_64(destination)
+        op[#op + 1] = util.sign_extend_32_64(destination)
     end
 
     return true, table.concat(op)
@@ -122,9 +110,9 @@ local function shift_variable(self, _, first_source, second_source, destination,
         [0x17] = 0x3F  -- DSRAV
     }
 
-    first_source = decode_mips.register_name(first_source)
-    second_source = decode_mips.register_name(second_source)
-    destination = decode_mips.register_name(destination)
+    first_source = mips.register_name(first_source)
+    second_source = mips.register_name(second_source)
+    destination = mips.register_name(destination)
 
     local op = {
         -- Operands
@@ -160,9 +148,9 @@ local function bitop_register(self, _, first_source, second_source, destination,
         [0x27] = ")" -- NOR
     }
 
-    first_source = decode_mips.register_name(first_source)
-    second_source = decode_mips.register_name(second_source)
-    destination = decode_mips.register_name(destination)
+    first_source = mips.register_name(first_source)
+    second_source = mips.register_name(second_source)
+    destination = mips.register_name(destination)
 
     local op = {
         -- Operands
@@ -219,9 +207,9 @@ local function addsub_register(self, _, first_source, second_source, destination
         [0x2F] = false  -- DSUBU
     }
 
-    first_source = decode_mips.register_name(first_source)
-    second_source = decode_mips.register_name(second_source)
-    destination = decode_mips.register_name(destination)
+    first_source = mips.register_name(first_source)
+    second_source = mips.register_name(second_source)
+    destination = mips.register_name(destination)
 
     local op = {
         -- Operands
@@ -244,7 +232,7 @@ local function addsub_register(self, _, first_source, second_source, destination
     end
 
     if needs_sign_extend[function_field] then
-        op[#op + 1] = sign_extend_32_64(destination)
+        op[#op + 1] = util.sign_extend_32_64(destination)
     end
 
     return true, table.concat(op)
@@ -273,8 +261,8 @@ local function conditional_trap(self, _, first_source, second_source, _, _, func
         -- 0x37 is illegal
     }
 
-    first_source = decode_mips.register_name(first_source)
-    second_source = decode_mips.register_name(second_source)
+    first_source = mips.register_name(first_source)
+    second_source = mips.register_name(second_source)
 
     local op = {
         -- Operands
@@ -303,9 +291,9 @@ local function conditional_move(self, _, first_source, second_source, destinatio
         [0x0B] = "~="  -- MOVN
     }
 
-    first_source = decode_mips.register_name(first_source)
-    second_source = decode_mips.register_name(second_source)
-    destination = decode_mips.register_name(destination)
+    first_source = mips.register_name(first_source)
+    second_source = mips.register_name(second_source)
+    destination = mips.register_name(destination)
 
     local op = {
         -- Operands
@@ -329,11 +317,11 @@ end
 
 local special_table = {
     shift_immediate,        -- SLL
-    illegal_instruction,
+    util.illegal_instruction,
     shift_immediate,        -- SRL
     shift_immediate,        -- SRA
     shift_variable,         -- SLLV
-    illegal_instruction,
+    util.illegal_instruction,
     shift_variable,         -- SRLV
     shift_variable,         -- SRAV
     {},                     -- JR
@@ -342,24 +330,24 @@ local special_table = {
     conditional_move,       -- MOVN
     {},                     -- SYSCALL
     {},                     -- BREAK
-    illegal_instruction,
+    util.illegal_instruction,
     {},                     -- SYNC
     {},                     -- MFHI
     {},                     -- MTHI
     {},                     -- MFLO
     {},                     -- MTLO
     shift_variable,         -- DSLLV
-    illegal_instruction,
+    util.illegal_instruction,
     shift_variable,         -- DSRLV
     shift_variable,         -- DSRAV
     {},                     -- MULT
     {},                     -- MULTU
     {},                     -- DIV
     {},                     -- DIVU
-    illegal_instruction,    -- (DMULT)
-    illegal_instruction,    -- (DMULTU)
-    illegal_instruction,    -- (DDIV)
-    illegal_instruction,    -- (DDIVU)
+    util.illegal_instruction,    -- (DMULT)
+    util.illegal_instruction,    -- (DMULTU)
+    util.illegal_instruction,    -- (DDIV)
+    util.illegal_instruction,    -- (DDIVU)
     addsub_register,        -- ADD
     addsub_register,        -- ADDU
     addsub_register,        -- SUB
@@ -381,15 +369,15 @@ local special_table = {
     conditional_trap,       -- TLT
     conditional_trap,       -- TLTU
     conditional_trap,       -- TEQ
-    illegal_instruction,
+    util.illegal_instruction,
     conditional_trap,       -- TNE
-    illegal_instruction,
+    util.illegal_instruction,
     shift_immediate,        -- DSLL
-    illegal_instruction,
+    util.illegal_instruction,
     shift_immediate,        -- DSRL
     shift_immediate,        -- DSRA
     shift_immediate,        -- DSLL32
-    illegal_instruction,
+    util.illegal_instruction,
     shift_immediate,        -- DSRL32
     shift_immediate,        -- DSRA32
 }
