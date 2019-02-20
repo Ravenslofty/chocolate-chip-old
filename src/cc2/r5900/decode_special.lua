@@ -250,6 +250,36 @@ local function conditional_move(self, _, first_source, second_source, destinatio
     return true, table.concat(op)
 end
 
+local function set_if_less_than(self, _, first_source, second_source, destination, _, function_field)
+    -- The 0x01 bit specifies whether to perform signed or unsigned comparison.
+    local comparison_is_unsigned = bit.band(function_field, 0x01) ~= 0
+
+    local compare_type = comparison_is_unsigned and "uint64_t" or "int64_t"
+
+    first_source = mips.register_name(first_source)
+    second_source = mips.register_name(second_source)
+    destination = mips.register_name(destination)
+
+    local op = {
+        -- Operands
+        self:declare_source(first_source),
+        self:declare_source(second_source),
+        self:declare_destination(destination), 
+        -- Operate
+        "(ffi.cast(\"",
+        compare_type,
+        "\", ",
+        first_source,
+        ") < ffi.cast(\"",
+        compare_type,
+        "\", ",
+        second_source,
+        ") and 1 or 0\n",
+    }
+
+    return table.concat(op), true
+end
+
 local special_table = {
     shift_immediate,        -- SLL
     shift_immediate,
@@ -293,8 +323,8 @@ local special_table = {
     bitop_register,         -- NOR
     {},                     -- MFSA
     {},                     -- MTSA
-    {},                     -- SLT
-    {},                     -- SLTU
+    set_if_less_than,       -- SLT
+    set_if_less_than,       -- SLTU
     addsub_register,        -- DADD
     addsub_register,        -- DADDU
     addsub_register,        -- DSUB
