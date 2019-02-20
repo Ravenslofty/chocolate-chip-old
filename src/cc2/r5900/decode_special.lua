@@ -280,6 +280,31 @@ local function set_if_less_than(self, _, first_source, second_source, destinatio
     return table.concat(op), true
 end
 
+local function register_jump(self, _, target, _, link_register, _, function_field)
+    -- The 0x01 bit specifies if the return address should be placed in link_register.
+    local linked_branch = bit.band(function_field, 0x01) ~= 0
+
+    target = mips.register_name(target)
+    link_register = mips.register_name(link_register)
+
+    local op = {
+        -- Operands
+        self:declare_source(target),
+        -- ""Condition""
+        "local branch_condition = true\n"
+    }
+
+    if linked_branch then
+        op[#op + 1] = table.concat({
+            self:declare_destination(target),
+            tostring(self.pc + 8),
+            "\n"
+        })
+    end
+
+    return true, table.concat(op), target, false
+end
+
 local special_table = {
     shift_immediate,        -- SLL
     shift_immediate,
@@ -289,8 +314,8 @@ local special_table = {
     shift_variable,
     shift_variable,         -- SRLV
     shift_variable,         -- SRAV
-    {},                     -- JR
-    {},                     -- JALR
+    register_jump,          -- JR
+    register_jump,          -- JALR
     conditional_move,       -- MOVZ
     conditional_move,       -- MOVN
     {},                     -- SYSCALL
