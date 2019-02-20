@@ -39,7 +39,7 @@ local function compare_and_branch(self, _, first_source, opcode, target3, target
 
     local addr = branch_target_address(self, target3, target2, target1)
 
-    return true, table.concat(op), addr, likely_branch
+    return true, table.concat(op), tostring(addr), likely_branch
 end
 
 local function conditional_trap(self, _, source, opcode, imm3, imm2, imm1)

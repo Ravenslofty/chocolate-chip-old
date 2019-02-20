@@ -1,3 +1,7 @@
+local bit = require("bit")
+
+local util = require("cc2.r5900.decode_util")
+
 local function shift_immediate(self, _, _, second_source, destination, shift_amount, function_field)
     -- The 0x01 bit signifies an arithmetic shift, which shifts in the sign-bit instead of zeroes.
     local arithmetic_shift = bit.band(function_field, 0x01) ~= 0
