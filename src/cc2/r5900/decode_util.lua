@@ -42,6 +42,8 @@ function decode_util.cop0_register_name(register)
 end
 
 function decode_util.declare_source(self, register)
+    assert(type(register) == "number")
+
     if self.gpr_declared[register] then
         return ""
     end
@@ -57,6 +59,8 @@ function decode_util.declare_source(self, register)
 end
 
 function decode_util.declare_destination(self, register)
+    assert(type(register) == "number")
+
     if register == 0 then
         return "local _ = "
     end
@@ -72,6 +76,8 @@ function decode_util.declare_destination(self, register)
 end
 
 function decode_util.declare_cop0_source(self, register)
+    assert(type(register) == "number")
+
     if self.cp0r_declared[register] then
         return ""
     end
@@ -83,6 +89,8 @@ function decode_util.declare_cop0_source(self, register)
 end
 
 function decode_util.declare_cop0_destination(self, register)
+    assert(type(register) == "number")
+
     -- TODO: detect and ignore writes to read-only registers.
 
     local prefix = self.cp0r_declared[register] and "" or "local "
