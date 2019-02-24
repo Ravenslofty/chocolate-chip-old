@@ -4,6 +4,8 @@ local bit = require("bit")
 local r5900_decode = require("chocchip.r5900.decode")
 local r5900_interpret = require("chocchip.r5900.interpret")
 local r5900_timer = require("chocchip.r5900.timer")
+
+local cc2_r5900_decode = require("cc2.r5900.decode")
 --local r5900_tlb = require "chocchip.r5900.tlb"
 
 local band, bor = bit.band, bit.bor
@@ -182,39 +184,29 @@ local traces_generated = 0
 local traces_executed = 0
 local insns_executed = 0
 
+local cc2_decoder = cc2_r5900_decode.new()
+
+run = setmetatable(
+{},
+{
+    __index = function(t, pc)
+        traces_generated = traces_generated + 1
+        io.write("PC: ", bit.tohex(pc), "\n")
+        local f, _ = r5900_decode.decode(r5900_interpret.read4, pc)
+        local g = cc2_decoder:decode(r5900_interpret.read4, pc)
+        t[pc] = assert(load(f))
+        return t[pc]
+    end
+})
+
 function main.run()
-   local t = {}
-   local count = {}
-   while true do
-      --[[for N=3,3 do
-      io.write(string.format("%d: %s%s\n", N, bit.tohex(s:read_gpr64(N, 1)), bit.tohex(s:read_gpr64(N, 0))))
-      end]]
-      local pc = tonumber(s.pc)
-      assert(pc ~= 0, "jumped to zero")
-      if t[pc] == nil then
-         traces_generated = traces_generated + 1
-         io.write("PC: ", bit.tohex(pc), "\n")
-         local f, c = r5900_decode.decode(r5900_interpret.read4, pc)
-         tracefile = assert(io.open("traces/" .. bit.tohex(pc) .. ".lua", "w"))
-         tracefile:write(f, "\n")
-         tracefile:close()
-         assert(load(f))()
-         count[pc] = c
-         t[pc] = assert(load("x" .. bit.tohex(pc) .. "(s)"))
-      end
-      t[pc]()
-      insns_executed = insns_executed + count[pc]
-      traces_executed = traces_executed + 1
-   end
+    return run[0xBFC00000]()
 end
 
 function main.registers()
    for reg=0,31 do
       print(reg, bit.tohex(s:read_gpr64(reg, 1)), bit.tohex(s:read_gpr64(reg, 0)))
    end
-   print("traces generated:", traces_generated)
-   print("traces executed:", traces_executed)
-   print("insns executed:", insns_executed)
 end
 
 function main.crash(err)

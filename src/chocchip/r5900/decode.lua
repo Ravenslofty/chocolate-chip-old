@@ -392,9 +392,7 @@ function decode.decode(read4, pc)
     local stop_decoding = false
     local branch_delay_slot = false
     local likely_branch = false
-    local ops = {
-        "function x" .. bit.tohex(pc) .. "(s) ",
-    }
+    local ops = {}
     local op_count = 0
 
     while stop_decoding == false do
@@ -428,7 +426,7 @@ function decode.decode(read4, pc)
             "); s:cycle_update(); "
         })
 
-        if op_count % 2 == 0 then
+        if band(op_count, 1) == 0 then
             op = op .. "s:bus_cycle_update(); "
         end
 
@@ -457,7 +455,7 @@ function decode.decode(read4, pc)
         ops[#ops+1] = "\nelse s:cycle_update() end"
     end
 
-    ops[#ops+1] = " end"
+    ops[#ops+1] = " return run[tonumber(s.pc)]()"
     return table.concat(ops), op_count
 end
 

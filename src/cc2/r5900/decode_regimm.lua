@@ -2,12 +2,6 @@ local bit = require("bit")
 
 local util = require("cc2.r5900.decode_util")
 
-local function branch_target_address(self, target3, target2, target1)
-    local addr = bit.bor(bit.lshift(target3, 11), bit.lshift(target2, 6), target1)
-    addr = bit.arshift(bit.lshift(addr, 16), 14) -- Sign extend from 16 to 18 bits.
-    return addr + self.pc
-end
-
 local function compare_and_branch(self, _, first_source, opcode, target3, target2, target1)
     -- The 0x01 bit inverts the comparison. In this case, the only possible comparisons are >= 0 or < 0.
     local operation = bit.band(opcode, 0x01) and " >= 0\n" or " < 0\n"
@@ -18,8 +12,6 @@ local function compare_and_branch(self, _, first_source, opcode, target3, target
     -- The 0x10 bit signifies that the return address register is updated to the instruction after the 
     -- branch delay slot.
     local linked_branch = bit.band(opcode, 0x10) ~= 0
-
-    first_source = mips.register_name(second_source)
 
     local op = {
         -- Operands
@@ -37,7 +29,7 @@ local function compare_and_branch(self, _, first_source, opcode, target3, target
         })
     end
 
-    local addr = branch_target_address(self, target3, target2, target1)
+    local addr = util.branch_target_address(self, target3, target2, target1)
 
     return true, table.concat(op), tostring(addr), likely_branch
 end
@@ -56,13 +48,12 @@ local function conditional_trap(self, _, source, opcode, imm3, imm2, imm1)
 
     assert(not(comparison_is_equality and comparison_is_unsigned), "reserved instruction: trap on unsigned (in)equality to immediate")
 
-    local imm = bit.bor(bit.lshift(imm3, 11), bit.lshift(imm2, 6), imm1)
+    local imm = util.construct_immediate(imm3, imm2, imm1)
+    imm = bit.arshift(bit.lshift(imm, 48), 48)
 
     local compare_type = comparison_is_unsigned and "uint64_t" or "int64_t"
     local invert = invert_comparison and "not" or ""
     local operation = comparison_is_equality and "==" or ">="
-
-    source = mips.register_name(first_source)
 
     local op = {
         -- Operands

@@ -49,6 +49,9 @@ function instance:decode_instruction(instruction)
     local shift = opcode1[1]
     local mask = opcode1[2]
     local table = opcode1[3]
+
+    print(opcode, opcode1, shift, mask, table)
+    
     local index = band(rshift(instruction, shift), mask)
     local handler = table[index + 1]
 
@@ -61,9 +64,12 @@ function instance:decode(read32, program_counter)
 
     while keep_decoding do
         local instruction = read32(program_counter)
-        local decode_ok, op = self:decode_instruction(instruction)
+        local decode_ok, op, branch_target, likely_branch = self:decode_instruction(instruction)
         keep_decoding = decode_ok
+        
         ops[#ops+1] = op
+
+        program_counter = program_counter + 4
     end
 
     return table.concat(ops)
@@ -73,7 +79,11 @@ local DecodeInstance = {__index = instance}
 
 function mips_decode:new(decode_table)
     return setmetatable({
-        decode_table = decode_table
+        decode_table = decode_table,
+        gpr_declared = {},
+        gpr_needs_writeback = {},
+        cp0r_declared = {},
+        cp0r_needs_writeback = {}
     },
     DecodeInstance)
 end
@@ -113,7 +123,7 @@ local names = {
     "ra"
 }
 
-function register_name(register)
+function mips_decode.register_name(register)
     return names[register]
 end
 

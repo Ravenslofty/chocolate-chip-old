@@ -27,14 +27,11 @@ local function shift_immediate(self, _, _, second_source, destination, shift_amo
     -- -32 instructions use shift_amount + 32
     local shift_base = needs_shift_offset and 32 or 0
 
-    second_source = mips.register_name(second_source)
-    destination = mips.register_name(destination)
-
     local op = {
         -- Operands
-        self:declare_source(second_source),
+        util.declare_source(self, second_source),
         -- Shift
-        self:declare_destination(destination),
+        util.declare_destination(self, destination),
         operation,
         "(",
         second_source,
@@ -44,7 +41,7 @@ local function shift_immediate(self, _, _, second_source, destination, shift_amo
     }
 
     if not shift_is_64bit then
-        op[#op + 1] = util.sign_extend_32_64(destination)
+        op[#op + 1] = x
     end
 
     return true, table.concat(op)
@@ -69,15 +66,11 @@ local function shift_variable(self, _, first_source, second_source, destination,
     -- 32-bit instructions use the low 5 bits, 64-bit instructions use the low 6 bits.
     local mask = shift_is_64bit and 0x3F or 0x1F
 
-    first_source = mips.register_name(first_source)
-    second_source = mips.register_name(second_source)
-    destination = mips.register_name(destination)
-
     local op = {
         -- Operands
-        self:declare_source(first_source),
-        self:declare_source(second_source),
-        self:declare_destination(destination),
+        util.declare_source(self, first_source),
+        util.declare_source(self, second_source),
+        util.declare_destination(self, destination),
         -- Shift
         op_table[function_field],
         "(",
@@ -114,16 +107,12 @@ local function bitop_register(self, _, first_source, second_source, destination,
         [0x27] = ")" -- NOR
     }
 
-    first_source = mips.register_name(first_source)
-    second_source = mips.register_name(second_source)
-    destination = mips.register_name(destination)
-
     local op = {
         -- Operands
-        self:declare_source(first_source),
-        self:declare_source(second_source),
+        util.declare_source(self, first_source),
+        util.declare_source(self, second_source),
         -- Operate
-        self:declare_destination(destination),
+        util.declare_destination(self, destination),
         op_table[function_field],
         "(",
         first_source,
@@ -149,18 +138,12 @@ local function addsub_register(self, _, first_source, second_source, destination
 
     local operation = op_is_subtraction and "-" or "+"
 
-    first_source = mips.register_name(first_source)
-    second_source = mips.register_name(second_source)
-    destination = mips.register_name(destination)
-
     local op = {
         -- Operands
-        self:declare_source(first_source),
-        self:declare_source(second_source),
+        util.declare_source(self, first_source),
+        util.declare_source(self, second_source),
         -- Operate
-        self:declare_destination(destination),
-        destination,
-        " = ",
+        util.declare_destination(self, destination),
         first_source,
         " ",
         operation,
@@ -198,13 +181,10 @@ local function conditional_trap(self, _, first_source, second_source, _, _, func
     local invert = invert_comparison and "not" or ""
     local operation = comparison_is_equality and "==" or ">="
 
-    first_source = mips.register_name(first_source)
-    second_source = mips.register_name(second_source)
-
     local op = {
         -- Operands
-        self:declare_source(first_source),
-        self:declare_source(second_source),
+        util.declare_source(self, first_source),
+        util.declare_source(self, second_source),
         -- Operate
         "assert(",
         invert,
@@ -230,23 +210,19 @@ local function conditional_move(self, _, first_source, second_source, destinatio
     
     local operation = invert_test and "~=" or "=="
 
-    first_source = mips.register_name(first_source)
-    second_source = mips.register_name(second_source)
-    destination = mips.register_name(destination)
-
     local op = {
         -- Operands
-        self:declare_source(first_source),
-        self:declare_source(second_source),
+        util.declare_source(self, first_source),
+        util.declare_source(self, second_source),
         -- MOV[N/Z] don't touch the destination register if the condition is false.
-        self:declare_source(destination), 
+        util.declare_source(self, destination), 
         -- Operate
         "if ",
         second_source,
         " ",
         operation,
         " 0 then ",
-        self:declare_destination(destination),
+        util.declare_destination(self, destination),
         first_source,
         " end\n"
     }
@@ -260,15 +236,11 @@ local function set_if_less_than(self, _, first_source, second_source, destinatio
 
     local compare_type = comparison_is_unsigned and "uint64_t" or "int64_t"
 
-    first_source = mips.register_name(first_source)
-    second_source = mips.register_name(second_source)
-    destination = mips.register_name(destination)
-
     local op = {
         -- Operands
-        self:declare_source(first_source),
-        self:declare_source(second_source),
-        self:declare_destination(destination), 
+        util.declare_source(self, first_source),
+        util.declare_source(self, second_source),
+        util.declare_destination(self, destination), 
         -- Operate
         "(ffi.cast(\"",
         compare_type,
@@ -288,25 +260,22 @@ local function register_jump(self, _, target, _, link_register, _, function_fiel
     -- The 0x01 bit specifies if the return address should be placed in link_register.
     local linked_branch = bit.band(function_field, 0x01) ~= 0
 
-    target = mips.register_name(target)
-    link_register = mips.register_name(link_register)
-
     local op = {
         -- Operands
-        self:declare_source(target),
+        util.declare_source(self, target),
         -- ""Condition""
         "local branch_condition = true\n"
     }
 
     if linked_branch then
         op[#op + 1] = table.concat({
-            self:declare_destination(target),
+            util.declare_destination(self, target),
             tostring(self.pc + 8),
             "\n"
         })
     end
 
-    return true, table.concat(op), target, false
+    return true, table.concat(op), mips.register_name(target), false
 end
 
 local special_table = {
