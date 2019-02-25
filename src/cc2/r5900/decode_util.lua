@@ -114,7 +114,7 @@ end
 function decode_util.branch_target_address(self, target3, target2, target1)
     local addr = bit.bor(bit.lshift(target3, 11), bit.lshift(target2, 6), target1)
     addr = bit.arshift(bit.lshift(addr, 16), 14) -- Sign extend from 16 to 18 bits.
-    return addr + self.pc
+    return addr + self.program_counter
 end
 
 function decode_util.construct_immediate(imm3, imm2, imm1)

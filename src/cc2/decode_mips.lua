@@ -58,18 +58,19 @@ function instance:decode_instruction(instruction)
     return handler(self, opcode, first_source, second_source, destination, shift_amount, function_field)
 end
 
-function instance:decode(read32, program_counter)
+function instance:decode(read32)
     local keep_decoding = true
     local ops = {}
 
     while keep_decoding do
+        local program_counter = self.program_counter
         local instruction = read32(program_counter)
         local decode_ok, op, branch_target, likely_branch = self:decode_instruction(instruction)
         keep_decoding = decode_ok
         
         ops[#ops+1] = op
 
-        program_counter = program_counter + 4
+        self.program_counter = program_counter + 4
     end
 
     return table.concat(ops)
@@ -77,13 +78,17 @@ end
 
 local DecodeInstance = {__index = instance}
 
-function mips_decode:new(decode_table)
+function mips_decode.new(decode_table, program_counter)
+    assert(type(decode_table) == "table", "decode_table is not a table")
+    assert(tonumber(program_counter), "program_counter is not convertible to number")
+
     return setmetatable({
         decode_table = decode_table,
         gpr_declared = {},
         gpr_needs_writeback = {},
         cp0r_declared = {},
-        cp0r_needs_writeback = {}
+        cp0r_needs_writeback = {},
+        program_counter = tonumber(program_counter)
     },
     DecodeInstance)
 end

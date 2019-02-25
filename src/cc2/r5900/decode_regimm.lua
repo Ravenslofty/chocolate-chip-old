@@ -2,7 +2,7 @@ local bit = require("bit")
 
 local util = require("cc2.r5900.decode_util")
 
-local function compare_and_branch(self, _, first_source, opcode, target3, target2, target1)
+local function compare_and_branch(self, _, source, opcode, target3, target2, target1)
     -- The 0x01 bit inverts the comparison. In this case, the only possible comparisons are >= 0 or < 0.
     local operation = bit.band(opcode, 0x01) and " >= 0\n" or " < 0\n"
 
@@ -15,17 +15,17 @@ local function compare_and_branch(self, _, first_source, opcode, target3, target
 
     local op = {
         -- Operands
-        self:declare_source(first_source),
+        util.declare_source(self, source),
         -- Compare
         "local branch_condition = ",
-        first_source,
+        source,
         operation,
     }
 
     if linked_branch then
         op[#op + 1] = table.concat({
             self:declare_destination("ra"),
-            tostring(self.pc + 8)
+            tostring(self.program_counter + 8)
         })
     end
 

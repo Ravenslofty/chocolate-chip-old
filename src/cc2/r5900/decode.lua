@@ -13,8 +13,8 @@ local decode_table = {
     { 16, 0x1F, regimm_table },
     {},
     {},
-    {},
-    {},
+    { 26, 0x3F, general_table },
+    { 26, 0x3F, general_table },
     {},
     {},
     { 26, 0x3F, general_table },
@@ -76,8 +76,9 @@ local decode_table = {
     {},
 }
 
-function decode:new()
-    return mips:new(decode_table)
+function decode.new(program_counter)
+    assert(tonumber(program_counter), "program_counter is not convertible to number")
+    return mips.new(decode_table, program_counter)
 end
 
 return decode

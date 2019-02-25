@@ -184,16 +184,18 @@ local traces_generated = 0
 local traces_executed = 0
 local insns_executed = 0
 
-local cc2_decoder = cc2_r5900_decode.new()
 
 run = setmetatable(
 {},
 {
     __index = function(t, pc)
+        assert(tonumber(pc))
         traces_generated = traces_generated + 1
         io.write("PC: ", bit.tohex(pc), "\n")
         local f, _ = r5900_decode.decode(r5900_interpret.read4, pc)
-        local g = cc2_decoder:decode(r5900_interpret.read4, pc)
+        --print(f)
+        local g = cc2_r5900_decode.new(pc):decode(r5900_interpret.read4)
+        print(g)
         t[pc] = assert(load(f))
         return t[pc]
     end

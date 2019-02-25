@@ -2,6 +2,32 @@ local bit = require("bit")
 
 local util = require("cc2.r5900.decode_util")
 
+local function equality_branch(self, opcode, first_source, second_source, target3, target2, target1)
+    -- The 0x01 bit inverts the check. 
+    local invert_comparison = bit.band(opcode, 0x01) ~= 0
+
+    -- The 0x10 bit signifies that the branch delay slot has no effect if the branch condition is false.
+    local likely_branch = bit.band(opcode, 0x10) ~= 0
+
+    local operation = invert_comparison and " ~= " or " == "
+
+    local op = {
+        -- Operands
+        util.declare_source(self, first_source),
+        util.declare_source(self, second_source),
+        -- Compare
+        "local branch_condition = ",
+        first_source,
+        operation,
+        second_source,
+        "\n"
+    }
+
+    local addr = util.branch_target_address(self, target3, target2, target1)
+
+    return true, table.concat(op), tostring(addr), likely_branch
+end
+
 local function add_constant(self, opcode, source, destination, imm3, imm2, imm1)
     -- The 0x01 bit signifies whether to perform overflow checks on the result.
     local op_is_signed = bit.band(opcode, 0x01) == 0
@@ -64,8 +90,8 @@ local general_table = {
     {},                 -- [REGIMM]
     {},                 -- J
     {},                 -- JAL
-    {},                 -- BEQ
-    {},                 -- BNE
+    equality_branch,    -- BEQ
+    equality_branch,    -- BNE
     {},                 -- BLEZ
     {},                 -- BGTZ
     add_constant,       -- ADDI

@@ -270,7 +270,7 @@ local function register_jump(self, _, target, _, link_register, _, function_fiel
     if linked_branch then
         op[#op + 1] = table.concat({
             util.declare_destination(self, target),
-            tostring(self.pc + 8),
+            tostring(self.program_counter + 8),
             "\n"
         })
     end
