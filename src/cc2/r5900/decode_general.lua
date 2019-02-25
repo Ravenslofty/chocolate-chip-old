@@ -85,6 +85,19 @@ local function set_if_less_than(self, opcode, source, destination, imm3, imm2, i
     return table.concat(op), true
 end
 
+local function load_upper(self, _, _, destination, imm3, imm2, imm1)
+    local imm = util.construct_immediate(imm3, imm2, imm1)
+    imm = bit.arshift(bit.lshift(imm, 32), 32)
+
+    local op = {
+        -- Operands
+        util.declare_destination(self, destination),
+        -- Operate
+        tostring(imm)
+    }
+
+    return table.concat(op), true
+end
 local general_table = {
     {},                 -- [SPECIAL]
     {},                 -- [REGIMM]
@@ -101,7 +114,7 @@ local general_table = {
     {},                 -- ANDI
     {},                 -- ORI
     {},                 -- XORI
-    {},                 -- LUI
+    load_upper,         -- LUI
     {},                 -- [COP0]
     {},                 -- [COP1]
     {},                 -- [COP2]

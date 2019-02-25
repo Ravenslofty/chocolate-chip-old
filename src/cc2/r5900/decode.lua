@@ -24,7 +24,7 @@ local decode_table = {
     {},
     {},
     {},
-    {},
+    { 26, 0x3F, general_table },
     { 21, 0x1F, cop0_table },
     {},
     {},
