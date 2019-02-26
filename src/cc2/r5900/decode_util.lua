@@ -38,7 +38,7 @@ function decode_util.cop0_register_name(register)
         "c0_reserved31"
     }
 
-    return register_names[register]
+    return register_names[register + 1]
 end
 
 function decode_util.declare_source(self, register)

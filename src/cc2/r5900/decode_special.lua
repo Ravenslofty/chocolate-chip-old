@@ -1,5 +1,6 @@
 local bit = require("bit")
 
+local mips = require("cc2.decode_mips")
 local util = require("cc2.r5900.decode_util")
 
 local function shift_immediate(self, _, _, second_source, destination, shift_amount, function_field)
@@ -218,12 +219,12 @@ local function conditional_move(self, _, first_source, second_source, destinatio
         util.declare_source(self, destination), 
         -- Operate
         "if ",
-        second_source,
+        mips.register_name(second_source),
         " ",
         operation,
         " 0 then ",
         util.declare_destination(self, destination),
-        first_source,
+        mips.register_name(first_source),
         " end\n"
     }
 
@@ -245,11 +246,11 @@ local function set_if_less_than(self, _, first_source, second_source, destinatio
         "(ffi.cast(\"",
         compare_type,
         "\", ",
-        first_source,
+        mips.register_name(first_source),
         ") < ffi.cast(\"",
         compare_type,
         "\", ",
-        second_source,
+        mips.register_name(second_source),
         ") and 1 or 0\n",
     }
 

@@ -193,7 +193,7 @@ run = setmetatable(
         traces_generated = traces_generated + 1
         io.write("PC: ", bit.tohex(pc), "\n")
         local f, _ = r5900_decode.decode(r5900_interpret.read4, pc)
-        --print(f)
+        print(f)
         local g = cc2_r5900_decode.new(pc):decode(r5900_interpret.read4)
         print(g)
         t[pc] = assert(load(f))

@@ -1,5 +1,6 @@
 local bit = require("bit")
 
+local mips = require("cc2.decode_mips")
 local util = require("cc2.r5900.decode_util")
 
 local function equality_branch(self, opcode, first_source, second_source, target3, target2, target1)
@@ -16,16 +17,16 @@ local function equality_branch(self, opcode, first_source, second_source, target
         util.declare_source(self, first_source),
         util.declare_source(self, second_source),
         -- Compare
-        "local branch_condition = ",
-        first_source,
+        "local branch_condition = (",
+        mips.register_name(first_source),
         operation,
-        second_source,
-        "\n"
+        mips.register_name(second_source),
+        ")\n"
     }
 
     local addr = util.branch_target_address(self, target3, target2, target1)
 
-    return true, table.concat(op), tostring(addr), likely_branch
+    return true, table.concat(op), "0x" .. bit.tohex(addr), likely_branch
 end
 
 local function add_constant(self, opcode, source, destination, imm3, imm2, imm1)
@@ -42,9 +43,9 @@ local function add_constant(self, opcode, source, destination, imm3, imm2, imm1)
         util.declare_source(self, source),
         -- Operate
         util.declare_destination(self, destination),
-        source,
-        " + ",
-        tostring(imm),
+        mips.register_name(source),
+        " + 0x",
+        bit.tohex(imm),
         "\n"
     }
 
@@ -74,29 +75,59 @@ local function set_if_less_than(self, opcode, source, destination, imm3, imm2, i
         "(ffi.cast(\"",
         compare_type,
         "\", ",
-        source,
+        mips.register_name(source),
         ") < ffi.cast(\"",
         compare_type,
-        "\", ",
-        tostring(imm),
-        ") and 1 or 0\n",
+        "\", 0x",
+        bit.tohex(imm),
+        ")) and 1 or 0\n",
     }
 
-    return table.concat(op), true
+    return true, table.concat(op)
+end
+
+local function bitop_constant(self, opcode, source, destination, imm3, imm2, imm1)
+    -- Haven't found a way to break the instruction encoding down; the instruction encoding probably
+    -- selects a logical function unit inside the ALU.
+
+    local op_table = {
+        [0x0C] = "band",    -- ANDI
+        [0x0D] = "bor",     -- ORI
+        [0x0E] = "bxor",    -- XORI
+    }
+
+    local imm = util.construct_immediate(imm3, imm2, imm1)
+
+    local op = {
+        -- Operands
+        util.declare_source(self, source),
+        -- Operate
+        util.declare_destination(self, destination),
+        op_table[opcode],
+        "(",
+        mips.register_name(source),
+        ", 0x",
+        bit.tohex(imm),
+        ")\n"
+    }
+
+    return true, table.concat(op)
 end
 
 local function load_upper(self, _, _, destination, imm3, imm2, imm1)
     local imm = util.construct_immediate(imm3, imm2, imm1)
-    imm = bit.arshift(bit.lshift(imm, 32), 32)
+    imm = bit.arshift(bit.lshift(imm, 48), 32)
 
     local op = {
         -- Operands
         util.declare_destination(self, destination),
         -- Operate
-        tostring(imm)
+        "0x",
+        bit.tohex(imm),
+        "LL\n"
     }
 
-    return table.concat(op), true
+    return true, table.concat(op)
 end
 local general_table = {
     {},                 -- [SPECIAL]
@@ -111,9 +142,9 @@ local general_table = {
     add_constant,       -- ADDIU
     set_if_less_than,   -- SLTI
     set_if_less_than,   -- SLTIU
-    {},                 -- ANDI
-    {},                 -- ORI
-    {},                 -- XORI
+    bitop_constant,     -- ANDI
+    bitop_constant,     -- ORI
+    bitop_constant,     -- XORI
     load_upper,         -- LUI
     {},                 -- [COP0]
     {},                 -- [COP1]

@@ -31,7 +31,7 @@ local function compare_and_branch(self, _, source, opcode, target3, target2, tar
 
     local addr = util.branch_target_address(self, target3, target2, target1)
 
-    return true, table.concat(op), tostring(addr), likely_branch
+    return true, table.concat(op), "0x" .. bit.tohex(addr), likely_branch
 end
 
 local function conditional_trap(self, _, source, opcode, imm3, imm2, imm1)
