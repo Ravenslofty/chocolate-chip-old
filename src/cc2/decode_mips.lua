@@ -54,7 +54,7 @@ function instance:decode_instruction(instruction)
     local mask = opcode1[2]
     local table = opcode1[3]
 
-    print(opcode, opcode1, shift, mask, table)
+    print(opcode, first_source, second_source, destination, shift_amount, function_field, opcode1, table)
     
     local index = band(rshift(instruction, shift), mask)
     local handler = table[index + 1]
@@ -94,7 +94,7 @@ function instance:decode(read32)
     end
 
     ops[#ops+1] = self:write_back_registers()
-    --
+
     -- Return via tail call.
     assert(next_address ~= "")
     ops[#ops+1] = table.concat({

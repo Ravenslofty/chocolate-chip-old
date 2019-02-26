@@ -231,6 +231,12 @@ local function conditional_move(self, _, first_source, second_source, destinatio
     return true, table.concat(op)
 end
 
+local function sync(self, _, _, _, _, _, _)
+    -- If I decide to go cycle-accurate, I will need to implement this.
+    -- Until that point, this is a stub.
+    return true, ""
+end
+
 local function set_if_less_than(self, _, first_source, second_source, destination, _, function_field)
     -- The 0x01 bit specifies whether to perform signed or unsigned comparison.
     local comparison_is_unsigned = bit.band(function_field, 0x01) ~= 0
@@ -295,7 +301,7 @@ local special_table = {
     {},                     -- SYSCALL
     {},                     -- BREAK
     util.illegal_instruction,
-    {},                     -- SYNC
+    sync,                   -- SYNC
     {},                     -- MFHI
     {},                     -- MTHI
     {},                     -- MFLO

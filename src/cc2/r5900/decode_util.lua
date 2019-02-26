@@ -102,7 +102,7 @@ function decode_util.declare_cop0_destination(self, register)
     return prefix .. name .. " = "
 end
 
-function decode_util.sign_extend_32_64(register)
+function decode_util.sign_extend_32_64(destination)
     return table.concat({
         destination,
         " = arshift(lshift(", 

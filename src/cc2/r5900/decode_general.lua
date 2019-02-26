@@ -54,7 +54,7 @@ local function add_constant(self, opcode, source, destination, imm3, imm2, imm1)
     end
 
     if not op_is_64bit then
-        op[#op + 1] = util.sign_extend_32_64(destination)
+        op[#op + 1] = util.sign_extend_32_64(mips.register_name(destination))
     end
 
     return true, table.concat(op)
@@ -129,6 +129,7 @@ local function load_upper(self, _, _, destination, imm3, imm2, imm1)
 
     return true, table.concat(op)
 end
+
 local general_table = {
     {},                 -- [SPECIAL]
     {},                 -- [REGIMM]
@@ -150,8 +151,8 @@ local general_table = {
     {},                 -- [COP1]
     {},                 -- [COP2]
     util.illegal_instruction,
-    {},                 -- BEQL
-    {},                 -- BNEL
+    equality_branch,    -- BEQL
+    equality_branch,    -- BNEL
     {},                 -- BLEZL
     {},                 -- BGTZL
     add_constant,       -- DADDI
